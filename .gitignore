@@ -3,4 +3,6 @@ node_modules/
 .wwebjs_auth/
 .wwebjs_cache/
 *.log
+logs/
 .DS_Store
+.pm2/
