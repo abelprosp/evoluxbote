@@ -1,6 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const { obterContexto, gerarResposta, analisarImagem, conversas } = require('./chatServiceDiamond');
+const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
 const { cfg } = require('./config');
 const fs = require('fs');
@@ -44,7 +44,7 @@ async function aguardarDelayEntreMensagens(chatId) {
 }
 
 // Função helper para enviar mensagem ignorando erro de markedUnread (estilo Diamond)
-async function enviarMensagemSegura(client, chatId, texto) {
+async function enviarMensagemSegura(client, chatId, texto, salvarNoHistorico = true) {
   return new Promise(async (resolve, reject) => {
     try {
       console.log(`[WhatsApp] 📤 Tentando enviar mensagem para ${chatId} (${texto.length} chars)`);
@@ -52,6 +52,9 @@ async function enviarMensagemSegura(client, chatId, texto) {
       
       const timeout = setTimeout(() => {
         console.warn(`⚠️  Timeout ao enviar mensagem para ${chatId}, assumindo que foi enviada`);
+        if (salvarNoHistorico) {
+          adicionarMensagemAoHistorico(chatId, 'assistant', texto);
+        }
         resolve({ 
           id: { _serialized: `temp_${Date.now()}` },
           _nota: 'Mensagem enviada (timeout)',
@@ -63,6 +66,12 @@ async function enviarMensagemSegura(client, chatId, texto) {
         const resultado = await promiseEnvio;
         clearTimeout(timeout);
         console.log(`[WhatsApp] ✅ Mensagem enviada com sucesso para ${chatId}`);
+        
+        // Salva mensagem enviada no histórico
+        if (salvarNoHistorico) {
+          adicionarMensagemAoHistorico(chatId, 'assistant', texto);
+        }
+        
         resolve(resultado);
       } catch (error) {
         clearTimeout(timeout);
@@ -75,6 +84,11 @@ async function enviarMensagemSegura(client, chatId, texto) {
           
           console.warn(`⚠️  Erro markedUnread para ${chatId}: ${errorMsg.substring(0, 100)}`);
           console.warn(`   Assumindo que mensagem foi enviada (erro ocorre no sendSeen)`);
+          
+          // Salva mensagem enviada no histórico mesmo com erro
+          if (salvarNoHistorico) {
+            adicionarMensagemAoHistorico(chatId, 'assistant', texto);
+          }
           
           resolve({ 
             id: { _serialized: `temp_${Date.now()}` },
@@ -429,8 +443,13 @@ function createWhatsAppClient() {
         }
       }
       
+      // Salva mensagem do usuário no histórico ANTES de gerar resposta
+      // Isso garante que a IA tenha contexto completo incluindo a mensagem atual
+      adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      
       // Gera resposta com IA (estilo Diamond)
       console.log(`[WhatsApp] 🤖 Gerando resposta com IA para ${chatId}...`);
+      console.log(`[WhatsApp] 📚 Contexto completo da conversa será considerado na resposta`);
       try {
         const resposta = await gerarResposta(contexto, rawText, descricaoImagem);
         
@@ -442,7 +461,8 @@ function createWhatsAppClient() {
           // Aguarda delay antes de enviar (simula tempo de digitação)
           await new Promise(resolve => setTimeout(resolve, delay));
           
-          await enviarMensagemSegura(client, chatId, resposta);
+          // A função gerarResposta já adiciona ao histórico, mas garantimos aqui também
+          await enviarMensagemSegura(client, chatId, resposta, true);
           console.log(`[WhatsApp] ✅ Resposta enviada com sucesso para ${chatId}`);
         } else {
           console.warn(`[WhatsApp] ⚠️  Resposta vazia ou inválida para ${chatId}`);

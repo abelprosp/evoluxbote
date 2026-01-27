@@ -33,12 +33,21 @@ Você deve:
 - Coletar dados do candidato (nome, email, telefone, cidade, área de interesse)
 - Processar currículos enviados via WhatsApp
 - Ser sempre educada, profissional e empática
+- Entender o contexto completo da conversa, incluindo mensagens anteriores que você enviou
+- Manter consistência nas respostas baseando-se no histórico da conversa
+- Referenciar informações mencionadas anteriormente quando relevante
 
 Quando o candidato quiser se candidatar:
 1. Solicite o currículo (PDF, DOCX ou imagem)
 2. Após receber o currículo, colete: nome completo, email, telefone, cidade e área de interesse
 3. Confirme os dados antes de finalizar
 4. Salve tudo no sistema
+
+IMPORTANTE: Analise todo o histórico da conversa antes de responder. Considere:
+- O que foi discutido anteriormente
+- Informações já coletadas
+- O tom e contexto das mensagens anteriores
+- Continuidade da conversa
 
 Seja sempre natural e conversacional, nunca como um questionário robótico.`;
 
@@ -108,14 +117,17 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
       }
     ];
 
-    // Adicionar histórico da conversa (últimas 10 mensagens)
-    const historico = contexto.mensagens.slice(-10);
+    // Adicionar histórico da conversa (últimas 30 mensagens para melhor contexto)
+    // Isso inclui tanto mensagens do usuário quanto respostas anteriores do bot
+    const historico = contexto.mensagens.slice(-30);
     historico.forEach(msg => {
       mensagens.push({
         role: msg.role,
         content: msg.content
       });
     });
+    
+    console.log(`[ChatService] 📚 Contexto: ${historico.length} mensagens anteriores no histórico`);
 
     // Construir mensagem do usuário
     let conteudoMensagem = mensagemCliente;
@@ -138,11 +150,12 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
 
     // Chamar API (OpenAI/GROQ/compatível)
     console.log(`[ChatService] Chamando API: ${apiUrl}${chatPath}, modelo: ${cfg.OPENAI_MODEL || 'gpt-4o-mini'}`);
+    console.log(`[ChatService] 📤 Enviando ${mensagens.length} mensagens para análise (incluindo histórico completo)`);
     const response = await httpClient.post(chatPath, {
       model: cfg.OPENAI_MODEL || 'gpt-4o-mini',
       messages: mensagens,
       temperature: 0.7,
-      max_tokens: 500
+      max_tokens: 800 // Aumentado para permitir respostas mais completas e contextualizadas
     });
 
     const resposta = response.data?.choices?.[0]?.message?.content?.trim() || 
@@ -150,12 +163,20 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
                      'Desculpe, não consegui gerar uma resposta.';
     
     console.log(`[ChatService] ✅ Resposta gerada (${resposta.length} chars)`);
+    console.log(`[ChatService] 💡 Resposta baseada em ${historico.length} mensagens anteriores do histórico`);
     
-    // Atualizar histórico
-    contexto.mensagens.push(
-      { role: 'user', content: conteudoMensagem },
-      { role: 'assistant', content: resposta }
-    );
+    // A mensagem do usuário já foi adicionada antes de chamar esta função
+    // Apenas adicionamos a resposta do assistente ao histórico
+    contexto.mensagens.push({
+      role: 'assistant',
+      content: resposta,
+      timestamp: Date.now()
+    });
+    
+    // Limita o histórico a 50 mensagens
+    if (contexto.mensagens.length > 50) {
+      contexto.mensagens = contexto.mensagens.slice(-50);
+    }
 
     return resposta;
   } catch (error) {
@@ -206,9 +227,29 @@ async function analisarImagem(bufferImagem, legenda = '') {
   }
 }
 
+/**
+ * Adiciona mensagem ao histórico da conversa
+ */
+function adicionarMensagemAoHistorico(chatId, role, conteudo) {
+  const contexto = obterContexto(chatId);
+  contexto.mensagens.push({
+    role: role, // 'user' ou 'assistant'
+    content: conteudo,
+    timestamp: Date.now()
+  });
+  
+  // Limita o histórico a 50 mensagens para não consumir muito token
+  if (contexto.mensagens.length > 50) {
+    contexto.mensagens = contexto.mensagens.slice(-50);
+  }
+  
+  console.log(`[ChatService] 💾 Mensagem ${role} adicionada ao histórico de ${chatId} (total: ${contexto.mensagens.length})`);
+}
+
 module.exports = {
   obterContexto,
   gerarResposta,
   analisarImagem,
-  conversas
+  conversas,
+  adicionarMensagemAoHistorico
 };
