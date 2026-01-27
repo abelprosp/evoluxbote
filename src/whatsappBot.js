@@ -120,6 +120,9 @@ function createWhatsAppClient() {
   const applicationSessions = new Map();
   const processedMessageIds = new Map();
   const PROCESSED_TTL_MS = 5 * 60 * 1000;
+  
+  // Controle de pausa por chat (quando #assumir é usado)
+  const pausedChats = new Set();
 
   function getMessageId(msg) {
     if (!msg || !msg.id) return null;
@@ -246,19 +249,6 @@ function createWhatsAppClient() {
         return;
       }
 
-      // Verifica se já está processando uma mensagem deste chat
-      if (processingMessages.has(chatId)) {
-        console.log(`[WhatsApp] ⏳ Mensagem de ${chatId} aguardando (já há uma mensagem sendo processada)`);
-        // Aguarda um pouco e tenta novamente (será processada na próxima iteração)
-        return;
-      }
-
-      // Marca como processando
-      processingMessages.set(chatId, true);
-
-      // Aguarda delay mínimo entre mensagens
-      await aguardarDelayEntreMensagens(chatId);
-
       // Verifica se é grupo
       let isGroup = false;
       try {
@@ -281,8 +271,6 @@ function createWhatsAppClient() {
         return;
       }
 
-      markProcessed(msg);
-
       let hasBody = false;
       try {
         hasBody = !!(msg.body && String(msg.body).trim());
@@ -295,9 +283,64 @@ function createWhatsAppClient() {
       }
 
       const rawText = String(msg.body || '').trim();
-      const textNorm = rawText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const textNorm = rawText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
       
       console.log(`[WhatsApp] 📨 Mensagem recebida de ${chatId}: "${rawText.substring(0, 80)}"`);
+
+      // Verifica comandos de controle do bot (antes de qualquer processamento)
+      if (textNorm === '#assumir') {
+        pausedChats.add(chatId);
+        markProcessed(msg);
+        console.log(`[WhatsApp] ⏸️  Bot pausado para ${chatId} (conversa assumida manualmente)`);
+        try {
+          const resposta = '✅ Bot pausado. A conversa foi assumida manualmente.\n\n' +
+            'Para reativar o bot, envie: #pausa';
+          const delay = calcularDelayResposta(resposta);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await enviarMensagemSegura(client, chatId, resposta);
+        } catch (error) {
+          console.error(`[WhatsApp] ❌ Erro ao enviar confirmação de pausa:`, error?.message);
+        }
+        return;
+      }
+
+      if (textNorm === '#pausa') {
+        pausedChats.delete(chatId);
+        markProcessed(msg);
+        console.log(`[WhatsApp] ▶️  Bot reativado para ${chatId}`);
+        try {
+          const resposta = '✅ Bot reativado! Voltando a responder automaticamente.';
+          const delay = calcularDelayResposta(resposta);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await enviarMensagemSegura(client, chatId, resposta);
+        } catch (error) {
+          console.error(`[WhatsApp] ❌ Erro ao enviar confirmação de reativação:`, error?.message);
+        }
+        return;
+      }
+
+      // Se o chat está pausado, não processa mensagens (exceto os comandos acima)
+      if (pausedChats.has(chatId)) {
+        console.log(`[WhatsApp] ⏸️  Mensagem de ${chatId} ignorada (bot pausado para este chat)`);
+        markProcessed(msg);
+        return;
+      }
+
+      // Verifica se já está processando uma mensagem deste chat
+      if (processingMessages.has(chatId)) {
+        console.log(`[WhatsApp] ⏳ Mensagem de ${chatId} aguardando (já há uma mensagem sendo processada)`);
+        // Aguarda um pouco e tenta novamente (será processada na próxima iteração)
+        return;
+      }
+
+      // Marca como processando
+      processingMessages.set(chatId, true);
+
+      // Marca mensagem como processada
+      markProcessed(msg);
+
+      // Aguarda delay mínimo entre mensagens
+      await aguardarDelayEntreMensagens(chatId);
 
       // Verifica se há sessão de candidatura ativa
       const hasSession = applicationSessions.has(chatId);
