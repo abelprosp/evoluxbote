@@ -17,6 +17,12 @@ function getConfig() {
     COMPANY_NAME: process.env.COMPANY_NAME || 'EvoluxRH',
     COMPANY_REGISTRATION_LINK: process.env.COMPANY_REGISTRATION_LINK || 'https://evoluxrh.com/cadastro',
     TIMEZONE: process.env.TIMEZONE || 'America/Sao_Paulo',
+    
+    // Delays entre respostas (em milissegundos)
+    RESPONSE_DELAY_MIN_MS: process.env.RESPONSE_DELAY_MIN_MS ? parseInt(process.env.RESPONSE_DELAY_MIN_MS, 10) : 2000,
+    RESPONSE_DELAY_MAX_MS: process.env.RESPONSE_DELAY_MAX_MS ? parseInt(process.env.RESPONSE_DELAY_MAX_MS, 10) : 5000,
+    RESPONSE_DELAY_PER_CHAR_MS: process.env.RESPONSE_DELAY_PER_CHAR_MS ? parseFloat(process.env.RESPONSE_DELAY_PER_CHAR_MS) : 50,
+    MIN_DELAY_BETWEEN_MESSAGES_MS: process.env.MIN_DELAY_BETWEEN_MESSAGES_MS ? parseInt(process.env.MIN_DELAY_BETWEEN_MESSAGES_MS, 10) : 3000,
   };
   return cfg;
 }

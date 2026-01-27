@@ -6,6 +6,43 @@ const { cfg } = require('./config');
 const fs = require('fs');
 const path = require('path');
 
+// Controle de timing entre mensagens por chat
+const lastMessageTime = new Map();
+const processingMessages = new Map();
+
+/**
+ * Calcula delay baseado no tamanho da resposta (simula tempo de digitação)
+ */
+function calcularDelayResposta(textoResposta) {
+  const minDelay = cfg.RESPONSE_DELAY_MIN_MS || 2000;
+  const maxDelay = cfg.RESPONSE_DELAY_MAX_MS || 5000;
+  const delayPerChar = cfg.RESPONSE_DELAY_PER_CHAR_MS || 50;
+  
+  // Delay baseado no tamanho do texto (simula tempo de digitação)
+  const delayCalculado = minDelay + (textoResposta.length * delayPerChar);
+  
+  // Limita ao máximo configurado
+  return Math.min(delayCalculado, maxDelay);
+}
+
+/**
+ * Aguarda delay mínimo entre mensagens do mesmo chat
+ */
+async function aguardarDelayEntreMensagens(chatId) {
+  const minDelay = cfg.MIN_DELAY_BETWEEN_MESSAGES_MS || 3000;
+  const lastTime = lastMessageTime.get(chatId) || 0;
+  const now = Date.now();
+  const timeSinceLastMessage = now - lastTime;
+  
+  if (timeSinceLastMessage < minDelay) {
+    const waitTime = minDelay - timeSinceLastMessage;
+    console.log(`[WhatsApp] ⏳ Aguardando ${waitTime}ms antes de processar mensagem de ${chatId} (delay mínimo entre mensagens)`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastMessageTime.set(chatId, Date.now());
+}
+
 // Função helper para enviar mensagem ignorando erro de markedUnread (estilo Diamond)
 async function enviarMensagemSegura(client, chatId, texto) {
   return new Promise(async (resolve, reject) => {
@@ -209,6 +246,19 @@ function createWhatsAppClient() {
         return;
       }
 
+      // Verifica se já está processando uma mensagem deste chat
+      if (processingMessages.has(chatId)) {
+        console.log(`[WhatsApp] ⏳ Mensagem de ${chatId} aguardando (já há uma mensagem sendo processada)`);
+        // Aguarda um pouco e tenta novamente (será processada na próxima iteração)
+        return;
+      }
+
+      // Marca como processando
+      processingMessages.set(chatId, true);
+
+      // Aguarda delay mínimo entre mensagens
+      await aguardarDelayEntreMensagens(chatId);
+
       // Verifica se é grupo
       let isGroup = false;
       try {
@@ -273,13 +323,12 @@ function createWhatsAppClient() {
       // Detecta se enviou currículo sem estar no fluxo
       const isResumeMedia = msg.type === 'document' || msg.type === 'image';
       if (isResumeMedia && !hasSession) {
-        await enviarMensagemSegura(
-          client,
-          chatId,
-          'Olá! Sou a *Iza da EvoluxRH* 😊\n\n' +
+        const resposta = 'Olá! Sou a *Iza da EvoluxRH* 😊\n\n' +
           'Vi que você enviou um arquivo! 📄\n\n' +
-          'Para registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!'
-        );
+          'Para registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
+        const delay = calcularDelayResposta(resposta);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await enviarMensagemSegura(client, chatId, resposta);
         return;
       }
 
@@ -326,12 +375,11 @@ function createWhatsAppClient() {
       if (isFirstMessage) {
         console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação...`);
         try {
-          await enviarMensagemSegura(
-            client,
-            chatId,
-            'Olá! Sou a Iza da EvoluxRH! 😊\n\n' +
-            'Como posso ajudar hoje? Se quiser analisar vagas ou se candidatar, posso te orientar.'
-          );
+          const resposta = 'Olá! Sou a Iza da EvoluxRH! 😊\n\n' +
+            'Como posso ajudar hoje? Se quiser analisar vagas ou se candidatar, posso te orientar.';
+          const delay = calcularDelayResposta(resposta);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await enviarMensagemSegura(client, chatId, resposta);
           console.log(`[WhatsApp] ✅ Saudação enviada para ${chatId}`);
         } catch (error) {
           console.error(`[WhatsApp] ❌ Erro ao enviar saudação:`, error?.message);
@@ -344,7 +392,13 @@ function createWhatsAppClient() {
         const resposta = await gerarResposta(contexto, rawText, descricaoImagem);
         
         if (resposta && resposta.trim()) {
-          console.log(`[WhatsApp] ✅ Resposta gerada (${resposta.length} chars), enviando...`);
+          // Calcula delay baseado no tamanho da resposta
+          const delay = calcularDelayResposta(resposta);
+          console.log(`[WhatsApp] ✅ Resposta gerada (${resposta.length} chars), aguardando ${delay}ms antes de enviar...`);
+          
+          // Aguarda delay antes de enviar (simula tempo de digitação)
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
           await enviarMensagemSegura(client, chatId, resposta);
           console.log(`[WhatsApp] ✅ Resposta enviada com sucesso para ${chatId}`);
         } else {
@@ -358,6 +412,9 @@ function createWhatsAppClient() {
     } catch (error) {
       console.error('[WhatsApp] ❌ Erro ao processar mensagem:', error?.message || error);
       try {
+        const delay = calcularDelayResposta('Desculpe, houve um erro ao processar sua mensagem. Tente novamente, por favor.');
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
         await enviarMensagemSegura(
           client,
           msg.from,
@@ -366,6 +423,9 @@ function createWhatsAppClient() {
       } catch (sendError) {
         console.error('[WhatsApp] ❌ Erro ao enviar mensagem de erro:', sendError?.message);
       }
+    } finally {
+      // Remove flag de processamento
+      processingMessages.delete(msg.from);
     }
   }
 
@@ -381,12 +441,11 @@ function createWhatsAppClient() {
     });
 
     try {
-      await enviarMensagemSegura(
-        client,
-        chatId,
-        'Ótimo! Vamos começar sua candidatura! 📝\n\n' +
-        'Por favor, envie seu *currículo* (PDF, DOCX ou imagem).'
-      );
+      const resposta = 'Ótimo! Vamos começar sua candidatura! 📝\n\n' +
+        'Por favor, envie seu *currículo* (PDF, DOCX ou imagem).';
+      const delay = calcularDelayResposta(resposta);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await enviarMensagemSegura(client, chatId, resposta);
       console.log(`[WhatsApp] ✅ Mensagem de início de candidatura enviada para ${chatId}`);
     } catch (error) {
       console.error(`[WhatsApp] ❌ Erro ao enviar mensagem de candidatura:`, error?.message);
@@ -416,7 +475,10 @@ function createWhatsAppClient() {
               mimetype: media.mimetype || (msg.type === 'document' ? 'application/pdf' : 'image/jpeg'),
               base64: media.data
             };
-            await enviarMensagemSegura(client, chatId, 'Currículo recebido! Agora preciso do seu *nome completo*.');
+            const resposta = 'Currículo recebido! Agora preciso do seu *nome completo*.';
+            const delay = calcularDelayResposta(resposta);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            await enviarMensagemSegura(client, chatId, resposta);
             session.step = 'name';
             return true;
           }
@@ -431,11 +493,17 @@ function createWhatsAppClient() {
     if (session.step === 'name') {
       if (text && text.trim().length >= 2) {
         session.data.fullName = text.trim();
-        await enviarMensagemSegura(client, chatId, 'Ótimo! Agora preciso do seu *e-mail*.');
+        const resposta = 'Ótimo! Agora preciso do seu *e-mail*.';
+        const delay = calcularDelayResposta(resposta);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await enviarMensagemSegura(client, chatId, resposta);
         session.step = 'email';
         return true;
       }
-      await enviarMensagemSegura(client, chatId, 'Por favor, informe seu nome completo.');
+      const resposta = 'Por favor, informe seu nome completo.';
+      const delay = calcularDelayResposta(resposta);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await enviarMensagemSegura(client, chatId, resposta);
       return true;
     }
 
@@ -444,11 +512,17 @@ function createWhatsAppClient() {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (emailRegex.test(text)) {
         session.data.email = text.trim();
-        await enviarMensagemSegura(client, chatId, 'Perfeito! Agora preciso da sua *cidade*.');
+        const resposta = 'Perfeito! Agora preciso da sua *cidade*.';
+        const delay = calcularDelayResposta(resposta);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await enviarMensagemSegura(client, chatId, resposta);
         session.step = 'city';
         return true;
       }
-      await enviarMensagemSegura(client, chatId, 'Por favor, informe um e-mail válido.');
+      const resposta = 'Por favor, informe um e-mail válido.';
+      const delay = calcularDelayResposta(resposta);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await enviarMensagemSegura(client, chatId, resposta);
       return true;
     }
 
@@ -456,11 +530,17 @@ function createWhatsAppClient() {
     if (session.step === 'city') {
       if (text && text.trim().length >= 2) {
         session.data.city = text.trim();
-        await enviarMensagemSegura(client, chatId, 'Excelente! Por último, qual *área de interesse* ou vaga você tem interesse?');
+        const resposta = 'Excelente! Por último, qual *área de interesse* ou vaga você tem interesse?';
+        const delay = calcularDelayResposta(resposta);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await enviarMensagemSegura(client, chatId, resposta);
         session.step = 'job';
         return true;
       }
-      await enviarMensagemSegura(client, chatId, 'Por favor, informe sua cidade.');
+      const resposta = 'Por favor, informe sua cidade.';
+      const delay = calcularDelayResposta(resposta);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      await enviarMensagemSegura(client, chatId, resposta);
       return true;
     }
 
@@ -475,6 +555,8 @@ function createWhatsAppClient() {
         `- Área de interesse: ${session.data.jobInterest}\n\n` +
         `Está tudo correto? Responda *SIM* para confirmar ou *NÃO* para corrigir.`;
       
+      const delay = calcularDelayResposta(resumo);
+      await new Promise(resolve => setTimeout(resolve, delay));
       await enviarMensagemSegura(client, chatId, resumo);
       session.step = 'confirm';
       return true;
@@ -496,27 +578,29 @@ function createWhatsAppClient() {
             resumeMimetype: session.resume?.mimetype || 'application/pdf'
           });
 
-          await enviarMensagemSegura(
-            client,
-            chatId,
-            '🎉 *Candidatura registrada com sucesso!*\n\n' +
+          const resposta = '🎉 *Candidatura registrada com sucesso!*\n\n' +
             'Seus dados foram salvos e nossa equipe entrará em contato em breve.\n\n' +
-            'Obrigada por se candidatar na EvoluxRH! 😊'
-          );
+            'Obrigada por se candidatar na EvoluxRH! 😊';
+          const delay = calcularDelayResposta(resposta);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          await enviarMensagemSegura(client, chatId, resposta);
 
           applicationSessions.delete(chatId);
           return true;
         } catch (error) {
           console.error('[WhatsApp] Erro ao salvar candidatura:', error);
-          await enviarMensagemSegura(
-            client,
-            chatId,
-            'Desculpe, houve um erro ao salvar sua candidatura. Tente novamente mais tarde ou entre em contato conosco.'
-          );
+          const resposta = 'Desculpe, houve um erro ao salvar sua candidatura. Tente novamente mais tarde ou entre em contato conosco.';
+          const delay = calcularDelayResposta(resposta);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await enviarMensagemSegura(client, chatId, resposta);
           return true;
         }
       } else if (textNorm.includes('não') || textNorm.includes('nao') || textNorm.includes('n ')) {
-        await enviarMensagemSegura(client, chatId, 'Sem problemas! Qual dado você gostaria de corrigir? (nome, email, cidade ou vaga)');
+        const resposta = 'Sem problemas! Qual dado você gostaria de corrigir? (nome, email, cidade ou vaga)';
+        const delay = calcularDelayResposta(resposta);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        await enviarMensagemSegura(client, chatId, resposta);
         session.step = 'correcting';
         return true;
       }
