@@ -433,7 +433,7 @@ function createWhatsAppClient() {
         console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação...`);
         try {
           const resposta = 'Olá! Sou a Iza da EvoluxRH! 😊\n\n' +
-            'Como posso ajudar hoje? Se quiser analisar vagas ou se candidatar, posso te orientar.';
+            'Como posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.';
           const delay = calcularDelayResposta(resposta);
           await new Promise(resolve => setTimeout(resolve, delay));
           await enviarMensagemSegura(client, chatId, resposta);

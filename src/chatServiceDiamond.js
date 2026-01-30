@@ -1,7 +1,5 @@
 const axios = require('axios');
 const { cfg } = require('./config');
-const { getSupabase } = require('./db/supabase');
-const { getActiveJobs } = require('./services/jobsService');
 
 // Configuração para chamadas à API (suporta OpenAI, GROQ e outras APIs compatíveis)
 const apiUrl = cfg.OPENAI_API_URL || process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
@@ -28,7 +26,7 @@ const PROMPT_SISTEMA = `Você é a Iza, assistente virtual da EvoluxRH, uma empr
 Seu papel é ajudar candidatos de forma humana, próxima e personalizada, orientando sobre vagas disponíveis e coletando informações para candidaturas.
 
 Você deve:
-- Responder dúvidas sobre vagas disponíveis
+- Quando perguntarem sobre vagas: diga APENAS que há vagas disponíveis no site evoluxrh.com.br. NÃO liste vagas, NÃO mencione títulos ou descrições de vagas.
 - Orientar sobre o processo de candidatura
 - Coletar dados do candidato (nome, email, telefone, cidade, área de interesse)
 - Processar currículos enviados via WhatsApp
@@ -68,33 +66,11 @@ function obterContexto(chatId, nome, telefone) {
 }
 
 /**
- * Busca vagas ativas no Supabase e formata para o contexto
+ * Informação sobre vagas para o contexto da IA.
+ * O bot NÃO lista vagas; apenas informa que há vagas no site.
  */
-async function buscarVagasParaContexto() {
-  try {
-    const jobs = await getActiveJobs();
-    if (!jobs || jobs.length === 0) {
-      return 'Não há vagas disponíveis no momento.';
-    }
-    
-    let info = `\n\n[VAGAS DISPONÍVEIS - ${jobs.length} vaga(s)]\n\n`;
-    jobs.slice(0, 10).forEach((job, index) => {
-      info += `${index + 1}. ${job.title || 'Vaga'}\n`;
-      if (job.location) info += `   Local: ${job.location}\n`;
-      if (job.description) {
-        const desc = job.description.substring(0, 150);
-        info += `   Descrição: ${desc}...\n`;
-      }
-      info += `\n`;
-    });
-    
-    info += `Use essas informações para responder perguntas sobre vagas. Se o candidato perguntar sobre vagas específicas, mencione as opções disponíveis.`;
-    
-    return info;
-  } catch (error) {
-    console.error('[ChatService] Erro ao buscar vagas:', error);
-    return '';
-  }
+function getInfoVagasParaContexto() {
+  return '\n\n[INSTRUÇÃO SOBRE VAGAS] Quando o candidato perguntar sobre vagas disponíveis, responda APENAS que há vagas disponíveis no site evoluxrh.com.br. NÃO liste vagas, NÃO mencione títulos, cargos ou descrições. Apenas indique o site: evoluxrh.com.br';
 }
 
 /**
@@ -102,8 +78,8 @@ async function buscarVagasParaContexto() {
  */
 async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) {
   try {
-    // Busca vagas para contexto
-    const infoVagas = await buscarVagasParaContexto();
+    // Informação sobre vagas (apenas indicar o site, sem listar)
+    const infoVagas = getInfoVagasParaContexto();
     
     // Construir histórico de mensagens
     const mensagens = [
@@ -137,10 +113,8 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
         : `[Imagem enviada: ${descricaoImagem}]`;
     }
     
-    // Adicionar informações de vagas
-    if (infoVagas) {
-      conteudoMensagem += infoVagas;
-    }
+    // Adicionar instrução sobre vagas (sempre)
+    conteudoMensagem += infoVagas;
 
     // Adicionar mensagem atual do cliente
     mensagens.push({
