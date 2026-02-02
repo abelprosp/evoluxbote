@@ -152,10 +152,17 @@ function createWhatsAppClient() {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired; // 515 = após escanear QR
         console.log('[Baileys] Conexão fechada. statusCode:', statusCode, 'reconectar:', shouldReconnect);
         if (statusCode === DisconnectReason.loggedOut) {
           console.log('[Baileys] Você foi desconectado. Apague a pasta', AUTH_FOLDER, 'e inicie de novo para escanear o QR.');
           return;
+        }
+        if (isRestartRequired) {
+          console.log('');
+          console.log('📱 QR escaneado! Salvando credenciais e reconectando (aguarde 2–3 segundos)...');
+          console.log('   Em seguida deve aparecer: "Cliente WhatsApp (Baileys) conectado e pronto!"');
+          console.log('');
         }
         if (statusCode === 405) {
           console.log('');
@@ -165,8 +172,9 @@ function createWhatsAppClient() {
           console.log('');
         }
         if (shouldReconnect) {
-          console.log('[Baileys] Reconectando em 5s...');
-          setTimeout(() => connectToWhatsApp(), 5000);
+          const delayMs = isRestartRequired ? 2000 : 5000;
+          console.log('[Baileys] Reconectando em', delayMs / 1000, 's...');
+          setTimeout(() => connectToWhatsApp(), delayMs);
         }
       }
     });

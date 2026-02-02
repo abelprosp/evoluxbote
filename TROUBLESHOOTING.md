@@ -29,6 +29,23 @@ O log mostra **statusCode: 405** e **Connection Failure**; o QR Code nunca chega
 3. **Teste outra rede:** use o celular como hotspot ou outra conexão. Redes corporativas ou de datacenter às vezes são bloqueadas pelo WhatsApp.
 4. Se persistir, **atualize o Baileys:** `npm update @whiskeysockets/baileys` e reinicie.
 
+## 0.0.1 Fica só no QR depois de escanear o código
+
+Você escaneou o QR com o celular, mas a tela continua mostrando o QR e não aparece "Cliente WhatsApp conectado e pronto!".
+
+**O que acontece:** Após escanear, o WhatsApp **desconecta** a sessão (status 515 – restartRequired) para aplicar as credenciais. O bot **reconecta em 2–3 segundos** usando a sessão salva. Às vezes os logs passam rápido e parece que travou.
+
+**O que fazer:**
+
+1. **Aguarde 5–10 segundos** após escanear. Deve aparecer no log:  
+   `📱 QR escaneado! Salvando credenciais e reconectando (aguarde 2–3 segundos)...`  
+   e depois:  
+   `✅ Cliente WhatsApp (Baileys) conectado e pronto!`
+
+2. Se **não** aparecer essa mensagem e o QR **sumir e voltar**: pode ser erro 405 na reconexão (rede/VPS). Veja o item **0.0 Erro 405** e teste outra rede ou limpe `auth_info_baileys` e escaneie de novo.
+
+3. Se estiver no **VPS com PM2**: rode `pm2 logs evoluxrh-diamond-bot` e confira se, após escanear, surge "QR escaneado!" e em seguida "conectado e pronto!".
+
 ## 0.1 Bot diz "conectado e pronto" mas não responde às mensagens
 
 1. **Teste de outro número:** envie mensagem para o número do bot a partir de **outro** celular/número (não do mesmo que escaneou o QR). O bot ignora mensagens do próprio número conectado.
