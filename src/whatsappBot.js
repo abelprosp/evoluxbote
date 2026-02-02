@@ -175,7 +175,8 @@ function createWhatsAppClient() {
 
   // Cliente pronto - aplicar patch para desabilitar sendSeen
   client.on('ready', async () => {
-    console.log('\n✅ Cliente WhatsApp conectado e pronto!\n');
+    console.log('\n✅ Cliente WhatsApp conectado e pronto!');
+    console.log('📲 O bot está ouvindo mensagens. Envie uma mensagem para este número para testar.\n');
     
     try {
       await new Promise(resolve => setTimeout(resolve, 5000));
@@ -248,18 +249,23 @@ function createWhatsAppClient() {
 
   // Processar mensagens recebidas (estilo Diamond)
   async function handleIncomingMessage(msg) {
+    const chatId = msg?.from;
+    // Log de diagnóstico: confirma que o evento de mensagem está sendo recebido
+    console.log(`[WhatsApp] 📩 Evento de mensagem recebido de ${chatId || 'desconhecido'}`);
+
     try {
-      const chatId = msg.from;
-
-      if (wasProcessed(msg)) {
-        return;
-      }
-
       if (!msg || !chatId) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: msg ou chatId inválido`);
         return;
       }
 
       if (msg.fromMe) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem enviada por mim`);
+        return;
+      }
+
+      if (wasProcessed(msg)) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem já processada (evita duplicata)`);
         return;
       }
 
@@ -269,19 +275,21 @@ function createWhatsAppClient() {
         if (typeof msg.isGroupMsg === 'boolean') {
           isGroup = msg.isGroupMsg;
         } else {
-          // Fallback: verifica pelo JID
           isGroup = typeof msg.from === 'string' && msg.from.endsWith('@g.us');
         }
-      } catch (e) {
-        // Se der erro, assume que não é grupo
-      }
+      } catch (e) {}
       if (isGroup) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem de grupo (bot só atende conversas privadas)`);
         return;
       }
 
+      // Idade da mensagem (configurável; padrão 30 min para não ignorar mensagens recentes)
+      const maxAgeMs = cfg.MESSAGE_MAX_AGE_MS || 30 * 60 * 1000;
       const agora = Date.now();
       const ts = msg.timestamp ? msg.timestamp * 1000 : agora;
-      if (agora - ts > 5 * 60 * 1000) {
+      const ageMs = agora - ts;
+      if (ageMs > maxAgeMs) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem antiga (${Math.round(ageMs / 60000)} min). Só processamos mensagens dos últimos ${Math.round(maxAgeMs / 60000)} min.`);
         return;
       }
 
@@ -293,6 +301,7 @@ function createWhatsAppClient() {
       }
       const hasMedia = !!(msg.hasMedia || msg.type === 'document' || msg.type === 'image');
       if (!hasBody && !hasMedia) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem sem texto e sem mídia`);
         return;
       }
 
@@ -675,13 +684,21 @@ function createWhatsAppClient() {
 
   // Handler de mensagens (estilo Diamond)
   client.on('message', async (msg) => {
-    await handleIncomingMessage(msg);
+    try {
+      await handleIncomingMessage(msg);
+    } catch (err) {
+      console.error('[WhatsApp] ❌ Erro ao processar mensagem (event message):', err?.message || err);
+    }
   });
 
   // Fallback: message_create para mensagens que não disparam 'message'
   client.on('message_create', async (msg) => {
     if (!msg.fromMe) {
-      await handleIncomingMessage(msg);
+      try {
+        await handleIncomingMessage(msg);
+      } catch (err) {
+        console.error('[WhatsApp] ❌ Erro ao processar mensagem (event message_create):', err?.message || err);
+      }
     }
   });
 

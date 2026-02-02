@@ -23,6 +23,8 @@ function getConfig() {
     RESPONSE_DELAY_MAX_MS: process.env.RESPONSE_DELAY_MAX_MS ? parseInt(process.env.RESPONSE_DELAY_MAX_MS, 10) : 5000,
     RESPONSE_DELAY_PER_CHAR_MS: process.env.RESPONSE_DELAY_PER_CHAR_MS ? parseFloat(process.env.RESPONSE_DELAY_PER_CHAR_MS) : 50,
     MIN_DELAY_BETWEEN_MESSAGES_MS: process.env.MIN_DELAY_BETWEEN_MESSAGES_MS ? parseInt(process.env.MIN_DELAY_BETWEEN_MESSAGES_MS, 10) : 3000,
+    // Idade máxima da mensagem para processar (em ms). Mensagens mais antigas são ignoradas. Padrão: 30 min
+    MESSAGE_MAX_AGE_MS: process.env.MESSAGE_MAX_AGE_MS ? parseInt(process.env.MESSAGE_MAX_AGE_MS, 10) : 30 * 60 * 1000,
   };
   return cfg;
 }
