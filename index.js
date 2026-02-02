@@ -75,7 +75,8 @@ const { cfg } = require('./src/config');
   const authPath = path.join(process.cwd(), '.wwebjs_auth');
   if (fs.existsSync(authPath)) {
     console.log('[Init] Sessão salva encontrada em .wwebjs_auth');
-    console.log('[Init] Se houver problemas, delete essa pasta e reinicie.');
+    console.log('[Init] Mantenha o celular com internet e WhatsApp aberto para o evento "ready" disparar.');
+    console.log('[Init] Se "Cliente WhatsApp conectado e pronto!" não aparecer em 1–2 min, apague .wwebjs_auth e escaneie o QR de novo.');
   }
 
   // Função para inicializar com retry
@@ -140,7 +141,9 @@ const { cfg } = require('./src/config');
 
   try {
     await initWithRetries(5);
-    console.log('[Init] ✅ Inicialização concluída com sucesso!');
+    console.log('[Init] ✅ Puppeteer/WhatsApp Web carregado.');
+    console.log('[Init] ⏳ Aguardando evento "ready"... O bot SÓ processa mensagens após aparecer "Cliente WhatsApp conectado e pronto!"');
+    console.log('[Init] 💡 Com sessão salva, isso pode levar alguns segundos. Mantenha o celular com internet.');
   } catch (e) {
     console.error('[Init] ❌ Falha ao inicializar o WhatsApp client após múltiplas tentativas:', e?.message || e);
     console.error('[Init] ⚠️  DIAGNÓSTICO:');

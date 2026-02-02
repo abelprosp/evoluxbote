@@ -174,9 +174,11 @@ function createWhatsAppClient() {
   });
 
   // Cliente pronto - aplicar patch para desabilitar sendSeen
+  // IMPORTANTE: Só a partir deste momento o bot recebe e responde mensagens
   client.on('ready', async () => {
-    console.log('\n✅ Cliente WhatsApp conectado e pronto!');
-    console.log('📲 O bot está ouvindo mensagens. Envie uma mensagem para este número para testar.\n');
+    const agora = new Date().toISOString();
+    console.log('\n✅ Cliente WhatsApp conectado e pronto! [' + agora + ']');
+    console.log('📲 O bot ESTÁ ouvindo mensagens a partir de agora. Envie uma mensagem de OUTRO número para testar.\n');
     
     try {
       await new Promise(resolve => setTimeout(resolve, 5000));
@@ -230,7 +232,7 @@ function createWhatsAppClient() {
   });
 
   client.on('authenticated', () => {
-    console.log('✅ Autenticação realizada com sucesso!');
+    console.log('✅ Autenticação realizada com sucesso! (aguardando "ready" para receber mensagens)');
   });
 
   client.on('auth_failure', (msg) => {
@@ -240,6 +242,7 @@ function createWhatsAppClient() {
 
   client.on('disconnected', (reason) => {
     console.log('⚠️  Cliente desconectado:', reason);
+    console.log('📵 O bot NÃO vai processar mensagens até reconectar e aparecer "Cliente WhatsApp conectado e pronto!" de novo.');
     console.log('🔄 Tentando reconectar...');
   });
 
@@ -260,7 +263,7 @@ function createWhatsAppClient() {
       }
 
       if (msg.fromMe) {
-        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem enviada por mim`);
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem enviada por mim (você está mandando msg do MESMO número do bot - use outro número para testar)`);
         return;
       }
 

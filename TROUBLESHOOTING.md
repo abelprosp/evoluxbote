@@ -15,14 +15,26 @@ Ao enviar uma mensagem para o número do bot, você deve ver no terminal/PM2 alg
 - **Se aparecer** `📩 Evento` mas depois `⏭️ Ignorado: ...`: a mensagem está sendo filtrada (veja o motivo no log).
 - **Se aparecer** `📨 Mensagem recebida` e depois `✅ Resposta enviada`: está funcionando.
 
-## 2. Se não aparece nenhum evento de mensagem
+## 2. Bot conecta mas não responde às minhas mensagens
+
+**Causa mais comum:** você está mandando mensagem **do mesmo número** em que o bot está conectado.
+
+O bot ignora mensagens "enviadas por mim" (`fromMe`). Se você escaneou o QR com o seu celular e está testando mandando mensagem **desse mesmo celular** para o próprio número (ou para você mesmo), o bot vai receber e ignorar.
+
+**Solução:** teste com **outro número**:
+- Use outro celular e mande mensagem para o número do bot, ou
+- Use WhatsApp e WhatsApp Business no mesmo celular: conecte o bot em um e mande mensagem do outro para esse número.
+
+Nos logs deve aparecer: `⏭️ Ignorado: mensagem enviada por mim`.
+
+## 3. Se não aparece nenhum evento de mensagem
 
 - **Reconecte:** apague a pasta `.wwebjs_auth`, reinicie o bot e escaneie o QR de novo.
 - **Um número por sessão:** use apenas um WhatsApp por sessão (não use o mesmo QR em outro lugar).
 - **Internet:** confira se o servidor tem internet estável.
 - **PM2:** veja os logs com `npm run pm2:logs` ou `pm2 logs evoluxrh-diamond-bot`.
 
-## 3. Se aparece "Ignorado: mensagem antiga"
+## 4. Se aparece "Ignorado: mensagem antiga"
 
 O bot só processa mensagens dos **últimos 30 minutos** (configurável).
 
@@ -35,13 +47,13 @@ MESSAGE_MAX_AGE_MS=3600000
 
 Reinicie o bot após alterar.
 
-## 4. Se o bot está pausado
+## 5. Se o bot está pausado
 
 Se alguém enviou **#assumir** nessa conversa, o bot fica pausado e não responde.
 
 Para reativar, envie no WhatsApp: **#pausa**
 
-## 5. Conferir variáveis de ambiente
+## 6. Conferir variáveis de ambiente
 
 O bot precisa de:
 
@@ -51,7 +63,7 @@ O bot precisa de:
 
 Se alguma estiver faltando, o `index.js` já avisa ao iniciar. Confira o arquivo `.env` na raiz do projeto.
 
-## 6. Testar em modo desenvolvimento
+## 7. Testar em modo desenvolvimento
 
 Rodar direto no terminal (sem PM2) para ver todos os logs:
 
@@ -61,7 +73,7 @@ npm run dev
 
 Conecte o WhatsApp, espere aparecer "Cliente WhatsApp conectado e pronto!" e envie uma mensagem. Observe o que aparece no terminal.
 
-## 7. Limpar sessão e reconectar
+## 8. Limpar sessão e reconectar
 
 Se nada disso resolver:
 
