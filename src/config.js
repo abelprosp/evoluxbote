@@ -25,6 +25,8 @@ function getConfig() {
     MIN_DELAY_BETWEEN_MESSAGES_MS: process.env.MIN_DELAY_BETWEEN_MESSAGES_MS ? parseInt(process.env.MIN_DELAY_BETWEEN_MESSAGES_MS, 10) : 3000,
     // Idade máxima da mensagem para processar (em ms). Mensagens mais antigas são ignoradas. Padrão: 30 min
     MESSAGE_MAX_AGE_MS: process.env.MESSAGE_MAX_AGE_MS ? parseInt(process.env.MESSAGE_MAX_AGE_MS, 10) : 30 * 60 * 1000,
+    // Venom: headless=false abre a janela do Chrome com o QR na tela (útil quando "Not Logged" sem QR no terminal)
+    HEADLESS: process.env.HEADLESS === 'false' || process.env.HEADLESS === '0',
   };
   return cfg;
 }

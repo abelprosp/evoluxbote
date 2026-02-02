@@ -3,12 +3,12 @@ echo "Parando o bot (se estiver rodando com PM2)..."
 pm2 stop evoluxrh-diamond-bot 2>/dev/null
 
 echo ""
-echo "Apagando pasta .wwebjs_auth..."
-if [ -d ".wwebjs_auth" ]; then
-  rm -rf .wwebjs_auth
-  echo "Pasta .wwebjs_auth apagada com sucesso!"
+echo "Apagando pasta de sessão do Baileys (auth_info_baileys)..."
+if [ -d "auth_info_baileys" ]; then
+  rm -rf auth_info_baileys
+  echo "Pasta auth_info_baileys apagada."
 else
-  echo "Pasta .wwebjs_auth não encontrada."
+  echo "Pasta auth_info_baileys não encontrada."
 fi
 
 echo ""

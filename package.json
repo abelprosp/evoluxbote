@@ -16,13 +16,13 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.75.0",
+    "@whiskeysockets/baileys": "^6.6.0",
     "axios": "^1.12.2",
     "dotenv": "^17.2.3",
     "mammoth": "^1.11.0",
     "openai": "^4.20.0",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^24.23.0",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "https://github.com/Julzk/whatsapp-web.js/tarball/jkr_hotfix_7"
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
   }
 }
