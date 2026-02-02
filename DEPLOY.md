@@ -168,21 +168,30 @@ O PM2 está configurado para:
 
 ## 🔄 Atualizações
 
-Para atualizar o código:
+Para atualizar o código no VPS (**obrigatório** se ainda rodar whatsapp-web.js):
 
 ```bash
-# 1. Parar a aplicação
+# 1. Parar a aplicação (use o nome que aparece em pm2 list: evoluxrh, evoluxrh-diamond-bot, etc.)
 pm2 stop evoluxrh-diamond-bot
 
-# 2. Atualizar código (git pull, etc)
+# 2. Atualizar código (git pull ou envio dos arquivos)
 git pull
 
-# 3. Instalar novas dependências (se houver)
+# 3. Remover dependências antigas e reinstalar (evita whatsapp-web.js/Puppeteer)
+rm -rf node_modules package-lock.json
+
+# 4. Instalar dependências (agora usa Baileys, sem browser)
 npm install
 
-# 4. Reiniciar
-pm2 restart evoluxrh-diamond-bot
+# 5. Limpar sessões antigas (whatsapp-web.js / Venom)
+rm -rf .wwebjs_auth .wwebjs_cache tokens auth_info_baileys
+
+# 6. Reiniciar
+pm2 start ecosystem.config.js
+# ou: pm2 start index.js --name evoluxrh-diamond-bot
 ```
+
+**Importante:** O projeto usa **Baileys** (conexão direta, sem Chrome/Puppeteer). Se no VPS aparecer erro de `LocalWebCache`, `whatsapp-web.js` ou `Protocol error (Network.getResponseBody)`, é porque está rodando código antigo — atualize com os passos acima.
 
 ## 🐛 Troubleshooting
 
@@ -198,15 +207,11 @@ pm2 restart evoluxrh-diamond-bot
    cat .env
    ```
 
-3. Verifique se há processos Chrome/Puppeteer travados:
+3. Limpe a sessão do WhatsApp (Baileys) se necessário:
    ```bash
-   pkill -f chrome
+   rm -rf auth_info_baileys
    ```
-
-4. Limpe a sessão do WhatsApp (se necessário):
-   ```bash
-   rm -rf .wwebjs_auth
-   ```
+   (O bot usa **Baileys**, não há Chrome/Puppeteer.)
 
 ### Bot reinicia constantemente
 
@@ -229,14 +234,14 @@ pm2 restart evoluxrh-diamond-bot
    pm2 logs evoluxrh-diamond-bot
    ```
 
-2. Limpe a sessão antiga:
+2. Limpe a sessão antiga (Baileys):
    ```bash
    pm2 stop evoluxrh-diamond-bot
-   rm -rf .wwebjs_auth
+   rm -rf auth_info_baileys
    pm2 start ecosystem.config.js
    ```
 
-3. Verifique se o servidor tem acesso gráfico ou use um túnel SSH com X11 forwarding
+3. O QR é exibido no terminal e salvo em `qrcode.png`; baixe o arquivo do VPS e escaneie no celular.
 
 ## 📁 Estrutura de Arquivos
 
@@ -250,13 +255,13 @@ evoluxrh-diamond/
 │   ├── pm2-error.log
 │   ├── pm2-out.log
 │   └── pm2-combined.log
-└── .wwebjs_auth/          # Sessão do WhatsApp (não commitado)
+└── auth_info_baileys/     # Sessão do WhatsApp (Baileys, não commitado)
 ```
 
 ## 🔐 Segurança
 
 - ⚠️ **NUNCA** commite o arquivo `.env`
-- ⚠️ **NUNCA** commite a pasta `.wwebjs_auth`
+- ⚠️ **NUNCA** commite a pasta `auth_info_baileys`
 - Use variáveis de ambiente para informações sensíveis
 - Configure firewall adequadamente no VPS
 - Mantenha o Node.js e dependências atualizadas
