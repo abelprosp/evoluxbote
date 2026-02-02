@@ -138,6 +138,52 @@ function createWhatsAppClient() {
   // Controle de pausa por chat (quando #assumir é usado)
   const pausedChats = new Set();
 
+  // Fallback: evento "ready" às vezes NÃO dispara com sessão salva (LocalAuth) - bug conhecido
+  let readyJáEmitido = false;
+  const FALLBACK_READY_MS = 15000; // 15 s após "authenticated", considerar pronto se "ready" não disparou
+
+  async function marcarClientePronto(origem) {
+    if (readyJáEmitido) return;
+    readyJáEmitido = true;
+    const agora = new Date().toISOString();
+    console.log('\n✅ Cliente WhatsApp conectado e pronto! [' + agora + '] (' + origem + ')');
+    console.log('📲 O bot ESTÁ ouvindo mensagens. Envie uma mensagem de OUTRO número para testar.\n');
+    try {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      const page = client.pupPage;
+      if (page) {
+        let patchAplicado = false;
+        for (let i = 0; i < 10; i++) {
+          try {
+            const resultado = await page.evaluate(() => {
+              try {
+                if (window.WWebJS) {
+                  if (window.WWebJS.sendSeen) {
+                    window.WWebJS.sendSeen = async function() { return Promise.resolve(); };
+                  }
+                  if (window.Store && window.Store.Msg && window.Store.Msg.sendSeen) {
+                    window.Store.Msg.sendSeen = async function() { return Promise.resolve(); };
+                  }
+                  return true;
+                }
+                return false;
+              } catch (e) { return false; }
+            });
+            if (resultado) { patchAplicado = true; break; }
+          } catch (e) {}
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        if (patchAplicado) {
+          console.log('✅ Patch aplicado: sendSeen desabilitado para evitar erro markedUnread');
+        } else {
+          console.warn('⚠️  Não foi possível aplicar patch sendSeen completamente');
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️  Erro ao aplicar patch sendSeen:', error.message);
+    }
+  }
+
   function getMessageId(msg) {
     if (!msg || !msg.id) return null;
     const id = msg.id._serialized || msg.id.serialized || (typeof msg.id === 'string' ? msg.id : null);
@@ -173,66 +219,21 @@ function createWhatsAppClient() {
     qrcode.generate(qr, { small: true });
   });
 
-  // Cliente pronto - aplicar patch para desabilitar sendSeen
-  // IMPORTANTE: Só a partir deste momento o bot recebe e responde mensagens
+  // Cliente pronto - aplicar patch e considerar "ouvindo mensagens"
+  // Com sessão salva (LocalAuth), o evento "ready" às vezes NÃO dispara (bug conhecido) - usamos fallback
   client.on('ready', async () => {
-    const agora = new Date().toISOString();
-    console.log('\n✅ Cliente WhatsApp conectado e pronto! [' + agora + ']');
-    console.log('📲 O bot ESTÁ ouvindo mensagens a partir de agora. Envie uma mensagem de OUTRO número para testar.\n');
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      const page = client.pupPage;
-      if (page) {
-        let patchAplicado = false;
-        for (let i = 0; i < 10; i++) {
-          try {
-            const resultado = await page.evaluate(() => {
-              try {
-                if (window.WWebJS) {
-                  if (window.WWebJS.sendSeen) {
-                    window.WWebJS.sendSeen = async function() {
-                      return Promise.resolve();
-                    };
-                  }
-                  if (window.Store && window.Store.Msg && window.Store.Msg.sendSeen) {
-                    window.Store.Msg.sendSeen = async function() {
-                      return Promise.resolve();
-                    };
-                  }
-                  return true;
-                }
-                return false;
-              } catch (e) {
-                return false;
-              }
-            });
-            
-            if (resultado) {
-              patchAplicado = true;
-              break;
-            }
-          } catch (e) {
-            // Continuar tentando
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        if (patchAplicado) {
-          console.log('✅ Patch aplicado: sendSeen desabilitado para evitar erro markedUnread');
-        } else {
-          console.warn('⚠️  Não foi possível aplicar patch sendSeen completamente');
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️  Erro ao aplicar patch sendSeen:', error.message);
-    }
+    await marcarClientePronto('evento ready');
   });
 
   client.on('authenticated', () => {
-    console.log('✅ Autenticação realizada com sucesso! (aguardando "ready" para receber mensagens)');
+    console.log('✅ Autenticação realizada com sucesso!');
+    // Fallback: se em 15s o "ready" não disparar (bug com sessão salva), consideramos pronto mesmo assim
+    setTimeout(async () => {
+      if (!readyJáEmitido) {
+        console.log('[WhatsApp] ⏱️ Evento "ready" não disparou em 15s (bug conhecido com sessão salva). Considerando cliente pronto.');
+        await marcarClientePronto('fallback: sessão salva');
+      }
+    }, FALLBACK_READY_MS);
   });
 
   client.on('auth_failure', (msg) => {
