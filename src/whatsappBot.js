@@ -10,6 +10,7 @@ const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
 const path = require('path');
 const fs = require('fs');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
 const { cfg } = require('./config');
@@ -121,11 +122,18 @@ function createWhatsAppClient() {
       }
     }
 
-    const sock = makeWASocket({
+    const socketOptions = {
       auth: state,
       version,
       getMessage: async () => undefined,
-    });
+      connectTimeoutMs: 60000,
+    };
+    if (cfg.BAILEYS_PROXY && cfg.BAILEYS_PROXY.trim()) {
+      socketOptions.agent = new HttpsProxyAgent(cfg.BAILEYS_PROXY.trim());
+      const proxyDisplay = cfg.BAILEYS_PROXY.replace(/:[^:@]+@/, ':****@');
+      console.log('[Baileys] Usando proxy:', proxyDisplay);
+    }
+    const sock = makeWASocket(socketOptions);
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -155,7 +163,16 @@ function createWhatsAppClient() {
         const isRestartRequired = statusCode === DisconnectReason.restartRequired; // 515 = após escanear QR
         console.log('[Baileys] Conexão fechada. statusCode:', statusCode, 'reconectar:', shouldReconnect);
         if (statusCode === DisconnectReason.loggedOut) {
-          console.log('[Baileys] Você foi desconectado. Apague a pasta', AUTH_FOLDER, 'e inicie de novo para escanear o QR.');
+          const authPath = path.join(process.cwd(), AUTH_FOLDER);
+          if (fs.existsSync(authPath)) {
+            try {
+              fs.rmSync(authPath, { recursive: true });
+              console.log('[Baileys] Pasta', AUTH_FOLDER, 'apagada automaticamente.');
+            } catch (e) {
+              console.warn('[Baileys] Não foi possível apagar a pasta:', e?.message);
+            }
+          }
+          console.log('[Baileys] Reinicie o bot (npm start ou pm2 restart) para ver o QR e escanear de novo.');
           return;
         }
         if (isRestartRequired) {
@@ -273,19 +290,23 @@ async function handleIncomingMessage(
     }
 
     const textNorm = (rawText || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    // Normaliza comando: "# assumir" ou "#  assumir" vira "#assumir"
+    const comandoNorm = textNorm.replace(/#\s+/, '#');
     console.log(`[WhatsApp] 📨 Mensagem de ${chatId}: "${(rawText || '').substring(0, 80)}"`);
 
-    if (textNorm === '#assumir') {
+    if (comandoNorm === '#assumir') {
       pausedChats.add(chatId);
       markProcessed(msg);
+      console.log(`[WhatsApp] ⏸️ Bot pausado para ${chatId} (#assumir)`);
       const resposta = '✅ Bot pausado. A conversa foi assumida manualmente.\n\nPara reativar o bot, envie: #pausa';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
       return;
     }
-    if (textNorm === '#pausa') {
+    if (comandoNorm === '#pausa') {
       pausedChats.delete(chatId);
       markProcessed(msg);
+      console.log(`[WhatsApp] ▶️ Bot reativado para ${chatId} (#pausa)`);
       const resposta = '✅ Bot reativado! Voltando a responder automaticamente.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
@@ -343,7 +364,7 @@ async function handleIncomingMessage(
     const isResumeMedia = isDocument || isImage;
     if (isResumeMedia && !hasSession) {
       const resposta =
-        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo! 📄\n\nPara registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
+        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
       processingMessages.delete(chatId);
@@ -426,11 +447,16 @@ async function handleApplicationStepBaileys(
         const buffer = await downloadMediaMessage(msg, 'buffer', {}, sock.updateMediaMessage ? { reuploadRequest: sock.updateMediaMessage } : {});
         if (buffer) {
           const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-          const filename = msg.message?.documentMessage?.fileName || msg.message?.imageMessage?.caption || 'curriculo.pdf';
-          const mimetype = msg.message?.documentMessage?.mimetype || msg.message?.imageMessage?.mimetype || 'application/pdf';
+          let filename = msg.message?.documentMessage?.fileName || msg.message?.imageMessage?.caption || '';
+          let mimetype = msg.message?.documentMessage?.mimetype || msg.message?.imageMessage?.mimetype || 'application/pdf';
+          if (isImage) {
+            if (!mimetype || mimetype === 'application/pdf') mimetype = 'image/jpeg';
+            const ext = mimetype === 'image/png' ? 'png' : mimetype === 'image/webp' ? 'webp' : 'jpg';
+            if (!filename || filename === 'curriculo.pdf' || !/\.(jpg|jpeg|png|webp)$/i.test(filename)) filename = `curriculo.${ext}`;
+          } else if (!filename) filename = 'curriculo.pdf';
           session.resume = {
             buffer: buf,
-            filename,
+            filename: filename.trim() || 'curriculo.pdf',
             mimetype,
             base64: buf.toString('base64'),
           };
@@ -466,13 +492,29 @@ async function handleApplicationStepBaileys(
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (emailRegex.test(text)) {
       session.data.email = text.trim();
-      const resposta = 'Perfeito! Agora preciso da sua *cidade*.';
+      const resposta = 'Perfeito! Agora preciso do seu *número de telefone* (com DDD). Ex: 98999998888';
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(sock, chatId, resposta);
+      session.step = 'phone';
+      return true;
+    }
+    const resposta = 'Por favor, informe um e-mail válido.';
+    await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+    await enviarMensagemSegura(sock, chatId, resposta);
+    return true;
+  }
+
+  if (session.step === 'phone') {
+    const digits = (text || '').replace(/\D/g, '');
+    if (digits.length >= 10) {
+      session.data.phone = digits;
+      const resposta = 'Ótimo! Agora preciso da sua *cidade*.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
       session.step = 'city';
       return true;
     }
-    const resposta = 'Por favor, informe um e-mail válido.';
+    const resposta = 'Por favor, informe um número válido com DDD (mínimo 10 dígitos). Ex: 98999998888';
     await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
     await enviarMensagemSegura(sock, chatId, resposta);
     return true;
@@ -499,6 +541,7 @@ async function handleApplicationStepBaileys(
       `✅ *Confirme seus dados:*\n\n` +
       `- Nome: ${session.data.fullName}\n` +
       `- E-mail: ${session.data.email}\n` +
+      `- Telefone: ${session.data.phone || '(não informado)'}\n` +
       `- Cidade: ${session.data.city}\n` +
       `- Área de interesse: ${session.data.jobInterest}\n\n` +
       `Está tudo correto? Responda *SIM* para confirmar ou *NÃO* para corrigir.`;
@@ -511,16 +554,18 @@ async function handleApplicationStepBaileys(
   if (session.step === 'confirm') {
     if (textNorm.includes('sim') || textNorm.includes('s ') || textNorm === 's') {
       try {
+        const defaultExt = (session.resume?.mimetype || '').startsWith('image/') ? (session.resume.mimetype === 'image/png' ? 'png' : session.resume.mimetype === 'image/webp' ? 'webp' : 'jpg') : 'pdf';
+        const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
         await saveWhatsappApplication({
           chatId,
           fullName: session.data.fullName,
           email: session.data.email,
-          whatsappNumber: chatId,
+          whatsappNumber: session.data.phone || chatId,
           city: session.data.city,
           jobInterest: session.data.jobInterest,
           resumeBase64: session.resume?.base64 || '',
-          resumeFilename: session.resume?.filename || 'curriculo.pdf',
-          resumeMimetype: session.resume?.mimetype || 'application/pdf',
+          resumeFilename: session.resume?.filename || defaultName,
+          resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
         });
         const resposta =
           '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
@@ -537,7 +582,7 @@ async function handleApplicationStepBaileys(
       }
     }
     if (textNorm.includes('não') || textNorm.includes('nao')) {
-      const resposta = 'Sem problemas! Qual dado você gostaria de corrigir? (nome, email, cidade ou vaga)';
+      const resposta = 'Sem problemas! Qual dado você gostaria de corrigir? (nome, email, telefone, cidade ou vaga)';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
       session.step = 'correcting';

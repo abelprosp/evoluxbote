@@ -27,6 +27,13 @@ function getConfig() {
     MESSAGE_MAX_AGE_MS: process.env.MESSAGE_MAX_AGE_MS ? parseInt(process.env.MESSAGE_MAX_AGE_MS, 10) : 30 * 60 * 1000,
     // Venom: headless=false abre a janela do Chrome com o QR na tela (útil quando "Not Logged" sem QR no terminal)
     HEADLESS: process.env.HEADLESS === 'false' || process.env.HEADLESS === '0',
+    // Proxy para conexão Baileys (útil quando a rede bloqueia acesso direto ao WhatsApp). Ex: http://proxy:3128 ou http://user:pass@proxy:3128
+    BAILEYS_PROXY: process.env.BAILEYS_PROXY || process.env.HTTPS_PROXY || '',
+
+    // Evolution API (usado quando hospedado na Vercel + webhook)
+    EVOLUTION_API_URL: process.env.EVOLUTION_API_URL || '',
+    EVOLUTION_API_KEY: process.env.EVOLUTION_API_KEY || '',
+    EVOLUTION_INSTANCE: process.env.EVOLUTION_INSTANCE || '',
   };
   return cfg;
 }

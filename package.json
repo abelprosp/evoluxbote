@@ -19,8 +19,10 @@
     "@whiskeysockets/baileys": "^6.6.0",
     "axios": "^1.12.2",
     "dotenv": "^17.2.3",
+    "https-proxy-agent": "^7.0.6",
     "mammoth": "^1.11.0",
     "openai": "^4.20.0",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
