@@ -1,0 +1,673 @@
+{
+  "name": "EvoluxRH Diamond Bot - Fluxo WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evolution-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "evoluxrh-evolution"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parseia payload da Evolution API (MESSAGES_UPSERT)\nconst body = $input.first().json.body || $input.first().json;\nconst event = (body.event || body.type || '').toLowerCase();\nconst data = body.data || body;\nconst instance = body.instance || data.instance || '';\n\nlet messages = [];\nif (Array.isArray(data.messages)) {\n  messages = data.messages;\n} else if (data.key && (data.message || data.messageBody !== undefined)) {\n  messages = [data];\n}\n\nconst items = messages.map(item => {\n  const key = item.key || {};\n  const msg = item.message || {};\n  const chatId = key.remoteJid || key.senderPn || '';\n  const fromMe = key.fromMe === true;\n  const messageId = key.id || key.messageId || '';\n  const text = (item.messageBody || msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.documentMessage?.caption || '').trim();\n  const contentType = msg.conversation || msg.extendedTextMessage ? 'conversation' : msg.imageMessage ? 'imageMessage' : msg.documentMessage ? 'documentMessage' : '';\n  const mediaBase64 = msg.imageMessage?.base64 || msg.documentMessage?.base64 || msg.imageMessage?.url?.base64 || null;\n  const fileName = msg.documentMessage?.fileName || msg.documentMessage?.title || 'curriculo.pdf';\n  const mimetype = msg.documentMessage?.mimetype || msg.imageMessage?.mimetype || 'application/pdf';\n  const textNorm = text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().replace(/ #\\s+/, '#');\n  const isGroup = (chatId || '').endsWith('@g.us');\n  \n  const triggers = ['quero me candidatar', 'gostaria de me candidatar', 'fazer minha candidatura', 'enviar meu curriculo', 'enviar curr├¡culo', 'quero trabalhar', 'quero uma vaga'];\n  const isApplicationTrigger = triggers.some(k => textNorm.includes(k));\n  const isAssumir = textNorm === '#assumir';\n  const isPausa = textNorm === '#pausa';\n  const isImage = contentType === 'imageMessage';\n  const isDocument = contentType === 'documentMessage';\n  const hasMedia = isImage || isDocument;\n  \n  return {\n    json: {\n      chatId,\n      fromMe,\n      messageId,\n      text,\n      textNorm,\n      contentType,\n      mediaBase64,\n      fileName,\n      mimetype,\n      instance,\n      isGroup,\n      isApplicationTrigger,\n      isAssumir,\n      isPausa,\n      isImage,\n      isDocument,\n      hasMedia,\n      hasBody: text.length > 0,\n      hasContent: text.length > 0 || hasMedia\n    }\n  };\n});\n\nif (items.length === 0) {\n  return [{ json: { skip: true, reason: 'no_messages' } }];\n}\nreturn items;"
+      },
+      "id": "parse-payload",
+      "name": "Parse Evolution Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true, \"processed\": 0 } }}"
+      },
+      "id": "respond-webhook",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [220, 520]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cond-fromMe", "leftValue": "={{ $json.fromMe }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-fromMe",
+      "name": "├ë mensagem pr├│pria?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cond-group", "leftValue": "={{ $json.isGroup }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-group",
+      "name": "├ë grupo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cond-assumir", "leftValue": "={{ $json.isAssumir }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-assumir",
+      "name": "Comando #assumir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cond-pausa", "leftValue": "={{ $json.isPausa }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-pausa",
+      "name": "Comando #pausa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "Ô£à Bot pausado. A conversa foi assumida manualmente.\n\nPara reativar o bot, envie: #pausa" }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "evolution-send-assumir",
+      "name": "Evolution - Enviar Assumir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300],
+      "notesInFlow": true,
+      "notes": "Aqui voc├¬ pode persistir chatId em lista de 'pausados' (ex: Supabase)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "Ô£à Bot reativado! Voltando a responder automaticamente." }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-send-pausa",
+      "name": "Evolution - Enviar Pausa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 440]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cond-trigger", "leftValue": "={{ $json.isApplicationTrigger }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-application-trigger",
+      "name": "Quer se candidatar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 600]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://vuavztofxcsgvbovywsw.supabase.co/rest/v1/chat_pending_resume?chat_id=eq.{{ encodeURIComponent($json.chatId) }}&order=created_at.desc&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $env.SUPABASE_ANON_KEY }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "http-get-pending-resume",
+      "name": "Supabase - Buscar curr├¡culo pendente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Quer se candidatar?').item.json;\nconst list = Array.isArray($input.item.json) ? $input.item.json : [];\nconst hasPending = list.length > 0 && list[0].created_at && (Date.now() - new Date(list[0].created_at).getTime() < 15*60*1000);\nconst fileName = hasPending && list[0].file_name ? list[0].file_name : null;\nreturn [{ json: { chatId: prev.chatId, instance: prev.instance, fileName, hasPendingResume: hasPending } }];"
+      },
+      "id": "code-check-pending-resume",
+      "name": "Verificar curr├¡culo pendente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "cp", "leftValue": "={{ $json.hasPendingResume }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-teve-curriculo-pendente",
+      "name": "Teve curr├¡culo pendente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 560]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "=`├ôtimo! J├í recebi seu curr├¡culo (${$json.fileName || 'arquivo'}). ­ƒôØ\n\nAgora preciso do seu *nome completo*.`" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-ja-recebi-curriculo",
+      "name": "Evolution - J├í recebi curr├¡culo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 520]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "├ôtimo! Vamos come├ºar sua candidatura! ­ƒôØ\n\nPor favor, envie seu *curr├¡culo* (PDF, DOCX ou imagem)." }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-send-curriculo",
+      "name": "Evolution - Pedir curr├¡culo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 600],
+      "notesInFlow": true,
+      "notes": "S├│ quando n├úo h├í curr├¡culo pendente (usu├írio n├úo enviou arquivo antes)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "c1", "leftValue": "={{ $json.hasMedia }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } },
+            { "id": "c2", "leftValue": "={{ $json.hasBody }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-media-sem-sessao",
+      "name": "M├¡dia sem sess├úo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 720]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "s1", "name": "chat_id", "value": "={{ $json.chatId }}", "type": "string" },
+            { "id": "s2", "name": "file_name", "value": "={{ $json.fileName || 'arquivo' }}", "type": "string" },
+            { "id": "s3", "name": "chatId", "value": "={{ $json.chatId }}", "type": "string" },
+            { "id": "s4", "name": "instance", "value": "={{ $json.instance }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-pending-resume-data",
+      "name": "Preparar dados curr├¡culo pendente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1220, 700]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "schema": "public",
+        "table": "chat_pending_resume",
+        "columns": "chat_id, file_name",
+        "additionalFields": {}
+      },
+      "id": "supabase-save-pending-resume",
+      "name": "Supabase - Salvar curr├¡culo pendente",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1340, 700],
+      "notesInFlow": true,
+      "notes": "Salva chat_id e file_name. Tabela: chat_pending_resume (veja supabase_chat_pending_resume.sql)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || $json.chat_id || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "Ol├í! Sou a *Iza da EvoluxRH* ­ƒÿè\n\nVi que voc├¬ enviou um arquivo ou imagem! ­ƒôä­ƒû╝´©Å\n\nPara registrar sua candidatura, me diga \"quero me candidatar\" e eu te guio passo a passo!" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-send-quero-candidatar",
+      "name": "Evolution - Orientar candidatura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst chatId = item.chatId || '';\nconst instance = item.instance || '';\nconst text = (item.text || '').trim() || '(sem texto)';\nlet history = [];\ntry {\n  const url = `https://vuavztofxcsgvbovywsw.supabase.co/rest/v1/conversation_history?chat_id=eq.${encodeURIComponent(chatId)}&order=created_at.asc&limit=30`;\n  const res = await this.helpers.httpRequest({\n    method: 'GET',\n    url,\n    headers: {\n      'apikey': process.env.SUPABASE_ANON_KEY || 'REPLACE_WITH_SUPABASE_ANON_KEY',\n      'Authorization': 'Bearer ' + (process.env.SUPABASE_ANON_KEY || 'REPLACE_WITH_SUPABASE_ANON_KEY')\n    },\n    timeout: 10000\n  });\n  history = Array.isArray(res) ? res : [];\n} catch (e) {\n  history = [];\n}\nconst systemContent = 'Voc├¬ ├® a Iza, assistente da EvoluxRH. Ajude candidatos de forma humana. Sobre vagas: diga apenas que h├í vagas em evoluxrh.com.br. N├úo liste vagas. Seja educada e emp├ítica.';\nconst messages = [{ role: 'system', content: systemContent }];\nhistory.forEach(h => { if (h.role && h.content) messages.push({ role: h.role, content: h.content }); });\nmessages.push({ role: 'user', content: text });\nreturn [{ json: { chatId, instance, text: item.text, messages } }];"
+      },
+      "id": "code-preparar-mensagens-grok",
+      "name": "Preparar mensagens Grok",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 360],
+      "notesInFlow": true,
+      "notes": "Busca hist├│rico no Supabase (conversation_history) e monta messages. Se falhar ou tabela n├úo existir, usa hist├│rico vazio e segue."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer {{ $env.GROK_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'grok-2-1212', messages: $json.messages, temperature: 0.7, max_tokens: 800 }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "grok-chat",
+      "name": "Grok - Gerar resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, 360],
+      "notesInFlow": true,
+      "notes": "Recebe messages com hist├│rico do Preparar mensagens Grok. Resposta no contexto da conversa."
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-grok-context",
+      "name": "Merge resposta e contexto",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2200, 360],
+      "notesInFlow": true,
+      "notes": "Junta resposta da Grok (input 1) com chatId/instance/text do Preparar mensagens Grok (input 2) para n├úo perder chat_id."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "reply", "value": "={{ $json.choices?.[0]?.message?.content?.trim() || 'Desculpe, n├úo consegui gerar uma resposta.' }}", "type": "string" },
+            { "id": "a2", "name": "chatId", "value": "={{ $json.chatId || '' }}", "type": "string" },
+            { "id": "a3", "name": "instance", "value": "={{ $json.instance || '' }}", "type": "string" },
+            { "id": "a4", "name": "text", "value": "={{ $json.text }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-reply",
+      "name": "Extrair resposta IA",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2420, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst chatId = item.chatId || item.chat_id || '';\nif (!chatId) return [];\nreturn [\n  { json: { chat_id: chatId, role: 'user', content: (item.text || '').trim() || '(sem texto)' } },\n  { json: { chat_id: chatId, role: 'assistant', content: (item.reply || '').trim() || '' } }\n];"
+      },
+      "id": "code-preparar-itens-historico",
+      "name": "Preparar itens hist├│rico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 320]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "schema": "public",
+        "table": "conversation_history",
+        "columns": "chat_id, role, content",
+        "additionalFields": {}
+      },
+      "id": "supabase-save-conversation-history",
+      "name": "Supabase - Salvar no hist├│rico",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2860, 320],
+      "notesInFlow": true,
+      "notes": "Insere mensagem do usu├írio e resposta da IA na tabela conversation_history."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "={{ $json.reply }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-send-reply",
+      "name": "Evolution - Enviar resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.EVOLUTION_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
+            { "name": "text", "value": "Ol├í! Sou a Iza da EvoluxRH! ­ƒÿè\n\nComo posso ajudar hoje? H├í vagas dispon├¡veis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar." }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "evolution-saudacao",
+      "name": "Evolution - Sauda├º├úo inicial",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 880],
+      "notesInFlow": true,
+      "notes": "Disparar quando n├úo existir hist├│rico para este chatId (primeira mensagem)."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "schema": "public",
+        "table": "resumes",
+        "columns": "candidate_name, candidate_phone, candidate_email, city, position_of_interest, file_name, file_path, file_url, file_type, file_size",
+        "additionalFields": {}
+      },
+      "id": "supabase-insert-resume",
+      "name": "Supabase - Inserir candidatura",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1320, 200],
+      "notesInFlow": true,
+      "notes": "Usado ao confirmar candidatura (SIM). Dados v├¬m da sess├úo (nome, email, telefone, cidade, ├írea). Curr├¡culo: upload no bucket 'resumes' antes e preencher file_path/file_url."
+    },
+    {
+      "parameters": {},
+      "id": "noop-ignore",
+      "name": "Ignorar (fromMe/grupo)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [660, 80]
+    }
+  ],
+  "connections": {
+    "Webhook Evolution": {
+      "main": [
+        [{"node": "Parse Evolution Payload", "type": "main", "index": 0}]
+      ]
+    },
+    "Parse Evolution Payload": {
+      "main": [
+        [{"node": "├ë mensagem pr├│pria?", "type": "main", "index": 0}]
+      ]
+    },
+    "├ë mensagem pr├│pria?": {
+      "main": [
+        [{"node": "Ignorar (fromMe/grupo)", "type": "main", "index": 0}],
+        [{"node": "├ë grupo?", "type": "main", "index": 0}]
+      ]
+    },
+    "├ë grupo?": {
+      "main": [
+        [{"node": "Ignorar (fromMe/grupo)", "type": "main", "index": 0}],
+        [{"node": "Comando #assumir?", "type": "main", "index": 0}]
+      ]
+    },
+    "Comando #assumir?": {
+      "main": [
+        [{"node": "Evolution - Enviar Assumir", "type": "main", "index": 0}],
+        [{"node": "Comando #pausa?", "type": "main", "index": 0}]
+      ]
+    },
+    "Comando #pausa?": {
+      "main": [
+        [{"node": "Evolution - Enviar Pausa", "type": "main", "index": 0}],
+        [{"node": "Quer se candidatar?", "type": "main", "index": 0}]
+      ]
+    },
+    "Quer se candidatar?": {
+      "main": [
+        [{"node": "Supabase - Buscar curr├¡culo pendente", "type": "main", "index": 0}],
+        [{"node": "M├¡dia sem sess├úo?", "type": "main", "index": 0}]
+      ]
+    },
+    "Supabase - Buscar curr├¡culo pendente": {
+      "main": [
+        [{"node": "Verificar curr├¡culo pendente", "type": "main", "index": 0}]
+      ]
+    },
+    "Verificar curr├¡culo pendente": {
+      "main": [
+        [{"node": "Teve curr├¡culo pendente?", "type": "main", "index": 0}]
+      ]
+    },
+    "Teve curr├¡culo pendente?": {
+      "main": [
+        [{"node": "Evolution - J├í recebi curr├¡culo", "type": "main", "index": 0}],
+        [{"node": "Evolution - Pedir curr├¡culo", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - J├í recebi curr├¡culo": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "M├¡dia sem sess├úo?": {
+      "main": [
+        [{"node": "Preparar dados curr├¡culo pendente", "type": "main", "index": 0}],
+        [{"node": "Preparar mensagens Grok", "type": "main", "index": 0}]
+      ]
+    },
+    "Preparar mensagens Grok": {
+      "main": [
+        [{"node": "Grok - Gerar resposta", "type": "main", "index": 0}],
+        [{"node": "Merge resposta e contexto", "type": "main", "index": 1}]
+      ]
+    },
+    "Preparar dados curr├¡culo pendente": {
+      "main": [
+        [{"node": "Supabase - Salvar curr├¡culo pendente", "type": "main", "index": 0}]
+      ]
+    },
+    "Supabase - Salvar curr├¡culo pendente": {
+      "main": [
+        [{"node": "Evolution - Orientar candidatura", "type": "main", "index": 0}]
+      ]
+    },
+    "Grok - Gerar resposta": {
+      "main": [
+        [{"node": "Merge resposta e contexto", "type": "main", "index": 0}]
+      ]
+    },
+    "Merge resposta e contexto": {
+      "main": [
+        [{"node": "Extrair resposta IA", "type": "main", "index": 0}]
+      ]
+    },
+    "Extrair resposta IA": {
+      "main": [
+        [{"node": "Preparar itens hist├│rico", "type": "main", "index": 0}],
+        [{"node": "Evolution - Enviar resposta", "type": "main", "index": 0}]
+      ]
+    },
+    "Preparar itens hist├│rico": {
+      "main": [
+        [{"node": "Supabase - Salvar no hist├│rico", "type": "main", "index": 0}]
+      ]
+    },
+    "Supabase - Salvar no hist├│rico": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - Enviar Assumir": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - Enviar Pausa": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - Pedir curr├¡culo": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - Orientar candidatura": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Evolution - Enviar resposta": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Ignorar (fromMe/grupo)": {
+      "main": [
+        [{"node": "Responder Webhook", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsCompletionMessage": "Tudo fixo no fluxo (Grok + Evolution). Configure apenas credenciais Supabase nos n├│s que usam."
+  }
+}
