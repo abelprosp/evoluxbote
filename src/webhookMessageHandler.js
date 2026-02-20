@@ -6,6 +6,7 @@ const { cfg } = require('./config');
 const { sendText, getEvolutionConfig } = require('./services/evolutionService');
 const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
+const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 
 // Estado em memória (persiste em warm invocations no serverless)
 const globalState = global.evoluxWebhookState || {
@@ -18,6 +19,13 @@ const globalState = global.evoluxWebhookState || {
 global.evoluxWebhookState = globalState;
 
 const PROCESSED_TTL_MS = 5 * 60 * 1000;
+
+function formatarTelefone(digits) {
+  const d = String(digits).replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 13 && d.startsWith('55')) return `+55 (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
+  return d || digits;
+}
 
 function getContentTypeFromMessage(message) {
   if (!message) return '';
@@ -202,7 +210,7 @@ async function handleOneMessage(instance, payload) {
   if (!hasBody && !hasMedia) return;
 
   const textNorm = (rawText || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  const comandoNorm = textNorm.replace(/#\s+/, '#');
+  const comandoNorm = textNorm.replace(/#\s+/g, '#');
 
   if (comandoNorm === '#assumir') {
     globalState.pausedChats.add(chatId);
@@ -330,10 +338,90 @@ async function handleApplicationStepEvolution(
         if (!/\.(jpg|jpeg|png|webp)$/i.test(fname)) fname = `curriculo.${ext}`;
       }
       session.resume = { buffer: buf, filename: fname, mimetype: mime, base64: mediaBase64 };
-      const resposta = 'Currículo recebido! Agora preciso do seu *nome completo*.';
+
+      await enviarMensagemSegura(chatId, '📄 Recebi seu currículo! Estou analisando com IA, aguarde um momento...');
+
+      let extracted = null;
+      try {
+        extracted = await extrairDadosCurriculo(buf, mime);
+      } catch (e) {
+        console.error('[Webhook] Erro ao analisar currículo com IA:', e?.message || e);
+      }
+
+      if (extracted && (extracted.fullName || extracted.email || extracted.phone)) {
+        session.data.fullName = extracted.fullName || session.data.fullName || '';
+        session.data.email = extracted.email || session.data.email || '';
+        session.data.phone = extracted.phone || session.data.phone || '';
+        session.data.city = extracted.city || session.data.city || '';
+        session.data.jobInterest = extracted.jobInterest || session.data.jobInterest || '';
+        const linhas = [
+          '📄 *Currículo recebido!* Analisei com IA e extraí estes dados:',
+          '',
+          `• Nome: ${session.data.fullName || '(não encontrado)'}`,
+          `• E-mail: ${session.data.email || '(não encontrado)'}`,
+          `• Telefone: ${session.data.phone ? formatarTelefone(session.data.phone) : '(não encontrado)'}`,
+          `• Cidade: ${session.data.city || '(não encontrado)'}`,
+          `• Área de interesse: ${session.data.jobInterest || '(não encontrado)'}`,
+          '',
+          'Está tudo correto? Responda *SIM* para confirmar e finalizar a candidatura, ou *NÃO* para preencher manualmente.',
+        ];
+        const resposta = linhas.join('\n');
+        await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+        await enviarMensagemSegura(chatId, resposta);
+        session.step = 'confirm_extracted';
+        return true;
+      }
+
+      const resposta =
+        'Currículo recebido! Não consegui ler os dados automaticamente.\n\n📷 *Dica:* Envie uma *foto* (imagem) da primeira página do currículo — a IA consegue analisar fotos. Ou informe seu *nome completo* para continuarmos manualmente.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(chatId, resposta);
       session.step = 'name';
+      return true;
+    }
+    return true;
+  }
+
+  if (session.step === 'confirm_extracted') {
+    if (textNorm.includes('sim') || textNorm.includes('s ') || textNorm === 's') {
+      try {
+        const defaultExt = (session.resume?.mimetype || '').startsWith('image/')
+          ? session.resume.mimetype === 'image/png'
+            ? 'png'
+            : session.resume.mimetype === 'image/webp'
+              ? 'webp'
+              : 'jpg'
+          : 'pdf';
+        const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
+        await saveWhatsappApplication({
+          chatId,
+          fullName: session.data.fullName || 'Não informado',
+          email: session.data.email || null,
+          whatsappNumber: session.data.phone || chatId,
+          city: session.data.city || null,
+          jobInterest: session.data.jobInterest || 'Não especificado',
+          resumeBase64: session.resume?.base64 || '',
+          resumeFilename: session.resume?.filename || defaultName,
+          resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
+        });
+        const resposta =
+          '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
+        await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+        await enviarMensagemSegura(chatId, resposta);
+        globalState.applicationSessions.delete(chatId);
+        return true;
+      } catch (error) {
+        console.error('[Webhook] Erro ao salvar candidatura:', error);
+        await enviarMensagemSegura(chatId, 'Desculpe, houve um erro ao salvar sua candidatura. Tente novamente mais tarde ou entre em contato conosco.');
+        return true;
+      }
+    }
+    if (textNorm.includes('não') || textNorm.includes('nao')) {
+      const resposta = 'Sem problemas! Por favor, informe seu *nome completo* para preenchermos manualmente.';
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(chatId, resposta);
+      session.step = 'name';
+      session.data = {};
       return true;
     }
     return true;

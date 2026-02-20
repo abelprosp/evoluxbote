@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parseia payload da Evolution API (MESSAGES_UPSERT)\nconst body = $input.first().json.body || $input.first().json;\nconst event = (body.event || body.type || '').toLowerCase();\nconst data = body.data || body;\nconst instance = body.instance || data.instance || '';\n\nlet messages = [];\nif (Array.isArray(data.messages)) {\n  messages = data.messages;\n} else if (data.key && (data.message || data.messageBody !== undefined)) {\n  messages = [data];\n}\n\nconst items = messages.map(item => {\n  const key = item.key || {};\n  const msg = item.message || {};\n  const chatId = key.remoteJid || key.senderPn || '';\n  const fromMe = key.fromMe === true;\n  const messageId = key.id || key.messageId || '';\n  const text = (item.messageBody || msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.documentMessage?.caption || '').trim();\n  const contentType = msg.conversation || msg.extendedTextMessage ? 'conversation' : msg.imageMessage ? 'imageMessage' : msg.documentMessage ? 'documentMessage' : '';\n  const mediaBase64 = msg.imageMessage?.base64 || msg.documentMessage?.base64 || msg.imageMessage?.url?.base64 || null;\n  const fileName = msg.documentMessage?.fileName || msg.documentMessage?.title || 'curriculo.pdf';\n  const mimetype = msg.documentMessage?.mimetype || msg.imageMessage?.mimetype || 'application/pdf';\n  const textNorm = text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().replace(/ #\\s+/, '#');\n  const isGroup = (chatId || '').endsWith('@g.us');\n  \n  const triggers = ['quero me candidatar', 'gostaria de me candidatar', 'fazer minha candidatura', 'enviar meu curriculo', 'enviar curr├¡culo', 'quero trabalhar', 'quero uma vaga'];\n  const isApplicationTrigger = triggers.some(k => textNorm.includes(k));\n  const isAssumir = textNorm === '#assumir';\n  const isPausa = textNorm === '#pausa';\n  const isImage = contentType === 'imageMessage';\n  const isDocument = contentType === 'documentMessage';\n  const hasMedia = isImage || isDocument;\n  \n  return {\n    json: {\n      chatId,\n      fromMe,\n      messageId,\n      text,\n      textNorm,\n      contentType,\n      mediaBase64,\n      fileName,\n      mimetype,\n      instance,\n      isGroup,\n      isApplicationTrigger,\n      isAssumir,\n      isPausa,\n      isImage,\n      isDocument,\n      hasMedia,\n      hasBody: text.length > 0,\n      hasContent: text.length > 0 || hasMedia\n    }\n  };\n});\n\nif (items.length === 0) {\n  return [{ json: { skip: true, reason: 'no_messages' } }];\n}\nreturn items;"
+        "jsCode": "// Parseia payload da Evolution API (MESSAGES_UPSERT)\nconst body = $input.first().json.body || $input.first().json;\nconst event = (body.event || body.type || '').toLowerCase();\nconst data = body.data || body;\nconst instance = body.instance || data.instance || '';\n\nlet messages = [];\nif (Array.isArray(data.messages)) {\n  messages = data.messages;\n} else if (data.key && (data.message || data.messageBody !== undefined)) {\n  messages = [data];\n}\n\nconst items = messages.map(item => {\n  const key = item.key || {};\n  const msg = item.message || {};\n  const chatId = key.remoteJid || key.senderPn || '';\n  const fromMe = key.fromMe === true;\n  const messageId = key.id || key.messageId || '';\n  const text = (item.messageBody || msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.documentMessage?.caption || '').trim();\n  const contentType = msg.conversation || msg.extendedTextMessage ? 'conversation' : msg.imageMessage ? 'imageMessage' : msg.documentMessage ? 'documentMessage' : '';\n  const mediaBase64 = msg.imageMessage?.base64 || msg.documentMessage?.base64 || msg.imageMessage?.url?.base64 || null;\n  const fileName = msg.documentMessage?.fileName || msg.documentMessage?.title || 'curriculo.pdf';\n  const mimetype = msg.documentMessage?.mimetype || msg.imageMessage?.mimetype || 'application/pdf';\n  const textNorm = text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().replace(/#\\s+/g, '#');\n  const isGroup = (chatId || '').endsWith('@g.us');\n  \n  const triggers = ['quero me candidatar', 'gostaria de me candidatar', 'fazer minha candidatura', 'enviar meu curriculo', 'enviar curr├¡culo', 'quero trabalhar', 'quero uma vaga'];\n  const isApplicationTrigger = triggers.some(k => textNorm.includes(k));\n  const isAssumir = textNorm === '#assumir';\n  const isPausa = textNorm === '#pausa';\n  const isImage = contentType === 'imageMessage';\n  const isDocument = contentType === 'documentMessage';\n  const hasMedia = isImage || isDocument;\n  \n  return {\n    json: {\n      chatId,\n      fromMe,\n      messageId,\n      text,\n      textNorm,\n      contentType,\n      mediaBase64,\n      fileName,\n      mimetype,\n      instance,\n      isGroup,\n      isApplicationTrigger,\n      isAssumir,\n      isPausa,\n      isImage,\n      isDocument,\n      hasMedia,\n      hasBody: text.length > 0,\n      hasContent: text.length > 0 || hasMedia\n    }\n  };\n});\n\nif (items.length === 0) {\n  return [{ json: { skip: true, reason: 'no_messages' } }];\n}\nreturn items;"
       },
       "id": "parse-payload",
       "name": "Parse Evolution Payload",
@@ -107,7 +107,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -118,7 +118,7 @@
         "bodyParameters": {
           "parameters": [
             { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
-            { "name": "text", "value": "Ô£à Bot pausado. A conversa foi assumida manualmente.\n\nPara reativar o bot, envie: #pausa" }
+            { "name": "text", "value": "✅ Bot pausado. A conversa foi assumida manualmente.\n\nPara reativar o bot, envie: #pausa" }
           ]
         },
         "options": {
@@ -136,7 +136,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -224,7 +224,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -249,7 +249,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -328,7 +328,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -447,7 +447,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -472,7 +472,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://prospett-evolution-api.bmgei8.easypanel.host/message/sendText/teste",
+        "url": "={{ $env.EVOLUTION_API_URL + '/message/sendText/' + ($env.EVOLUTION_INSTANCE || 'teste') }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

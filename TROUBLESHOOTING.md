@@ -16,6 +16,21 @@ Se o bot não conectar ou pedir login de novo:
 
 Com Baileys não há browser: o QR é gerado direto no terminal. Não existe "Not Logged" ou "desconnectedMobile" do Venom; se a sessão expirar, o Baileys reconecta ou você limpa `auth_info_baileys` e escaneia de novo.
 
+## 0.0.0.2 "Bad MAC" / "Failed to decrypt message" / "SessionError: No matching sessions"
+
+O log mostra **Error: Bad MAC**, **Failed to decrypt message** ou **SessionError: No matching sessions found for message**. Isso indica que a **sessão de criptografia** do WhatsApp (Signal) ficou dessincronizada: o celular ou outro aparelho tem chaves diferentes das salvas no bot (por exemplo, após atualização do WhatsApp, troca de aparelho ou reconexão).
+
+**O que fazer:**
+
+1. **Pare o bot** (Ctrl+C ou `pm2 stop evoluxrh-diamond-bot`).
+2. **Apague a pasta de sessão** para forçar novo pareamento:
+   - **Windows:** `rd /s /q auth_info_baileys` (ou execute `limpar-sessao.bat`)
+   - **Linux/Mac:** `rm -rf auth_info_baileys` (ou `./limpar-sessao.sh`)
+3. **Inicie o bot de novo** e escaneie o **QR Code** de novo (Configurações > Aparelhos conectados > Conectar um aparelho).
+4. **Não desconecte** esse aparelho pelo celular depois de escanear.
+
+Não há como recuperar a sessão antiga quando as chaves estão inconsistentes; é preciso limpar e escanear o QR novamente.
+
 ## 0.0 Erro 401 (sessão invalidada) / "Connection Failure" + statusCode: 401
 
 O log mostra **statusCode: 401** e **reconectar: false**; aparece "logging in..." e depois "connection errored" / "Conexão fechada".

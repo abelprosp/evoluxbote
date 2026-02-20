@@ -13,7 +13,15 @@ const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
+const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 const { cfg } = require('./config');
+
+function formatarTelefone(digits) {
+  const d = String(digits).replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 13 && d.startsWith('55')) return `+55 (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
+  return d || digits;
+}
 
 const AUTH_FOLDER = 'auth_info_baileys';
 
@@ -201,28 +209,32 @@ function createWhatsAppClient() {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const msg of messages) {
-        const chatId = msg.key.remoteJid;
-        if (!chatId) continue;
-        const fromMe = msg.key.fromMe || false;
-        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-        const contentType = (getContentType(msg.message) || getContentType(msg) || '').toString();
+        try {
+          const chatId = msg.key.remoteJid;
+          if (!chatId) continue;
+          const fromMe = msg.key.fromMe || false;
+          const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+          const contentType = (getContentType(msg.message) || getContentType(msg) || '').toString();
 
-        await handleIncomingMessage(sock, {
-          chatId,
-          fromMe,
-          text: (text || '').trim(),
-          contentType,
-          msg,
-          applicationSessions,
-          processedMessageIds,
-          pausedChats,
-          wasProcessed,
-          markProcessed,
-          aguardarDelayEntreMensagens,
-          calcularDelayResposta,
-          enviarMensagemSegura,
-          processingMessages,
-        });
+          await handleIncomingMessage(sock, {
+            chatId,
+            fromMe,
+            text: (text || '').trim(),
+            contentType,
+            msg,
+            applicationSessions,
+            processedMessageIds,
+            pausedChats,
+            wasProcessed,
+            markProcessed,
+            aguardarDelayEntreMensagens,
+            calcularDelayResposta,
+            enviarMensagemSegura,
+            processingMessages,
+          });
+        } catch (err) {
+          console.error('[WhatsApp] Erro ao processar uma mensagem:', err?.message || err);
+        }
       }
     });
 
@@ -285,7 +297,12 @@ async function handleIncomingMessage(
     const isDocument = contentType === 'documentMessage';
     const hasMedia = isImage || isDocument;
     if (!hasBody && !hasMedia) {
-      console.log(`[WhatsApp] ⏭️ Ignorado: mensagem sem texto e sem mídia`);
+      const semConteudo = !msg.message || (typeof msg.message !== 'object');
+      if (semConteudo) {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem sem conteúdo (se aparecer "Bad MAC" no log, apague a pasta auth_info_baileys e escaneie o QR de novo)`);
+      } else {
+        console.log(`[WhatsApp] ⏭️ Ignorado: mensagem sem texto e sem mídia`);
+      }
       return;
     }
 
@@ -460,7 +477,42 @@ async function handleApplicationStepBaileys(
             mimetype,
             base64: buf.toString('base64'),
           };
-          const resposta = 'Currículo recebido! Agora preciso do seu *nome completo*.';
+
+          await enviarMensagemSegura(sock, chatId, '📄 Recebi seu currículo! Estou analisando com IA, aguarde um momento...');
+
+          let extracted = null;
+          try {
+            extracted = await extrairDadosCurriculo(buf, mimetype);
+          } catch (e) {
+            console.error('[WhatsApp] Erro ao analisar currículo com IA:', e?.message);
+          }
+
+          if (extracted && (extracted.fullName || extracted.email || extracted.phone)) {
+            session.data.fullName = extracted.fullName || session.data.fullName || '';
+            session.data.email = extracted.email || session.data.email || '';
+            session.data.phone = extracted.phone || session.data.phone || '';
+            session.data.city = extracted.city || session.data.city || '';
+            session.data.jobInterest = extracted.jobInterest || session.data.jobInterest || '';
+            const linhas = [
+              '📄 *Currículo recebido!* Analisei com IA e extraí estes dados:',
+              '',
+              `• Nome: ${session.data.fullName || '(não encontrado)'}`,
+              `• E-mail: ${session.data.email || '(não encontrado)'}`,
+              `• Telefone: ${session.data.phone ? formatarTelefone(session.data.phone) : '(não encontrado)'}`,
+              `• Cidade: ${session.data.city || '(não encontrado)'}`,
+              `• Área de interesse: ${session.data.jobInterest || '(não encontrado)'}`,
+              '',
+              'Está tudo correto? Responda *SIM* para confirmar e finalizar a candidatura, ou *NÃO* para preencher manualmente.',
+            ];
+            const resposta = linhas.join('\n');
+            await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+            await enviarMensagemSegura(sock, chatId, resposta);
+            session.step = 'confirm_extracted';
+            return true;
+          }
+
+          const resposta =
+            'Currículo recebido! Não consegui ler os dados automaticamente.\n\n📷 *Dica:* Envie uma *foto* (imagem) da primeira página do currículo — a IA consegue analisar fotos. Ou informe seu *nome completo* para continuarmos manualmente.';
           await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
           await enviarMensagemSegura(sock, chatId, resposta);
           session.step = 'name';
@@ -469,6 +521,45 @@ async function handleApplicationStepBaileys(
       } catch (e) {
         console.error('[WhatsApp] Erro ao processar currículo:', e?.message);
       }
+    }
+    return true;
+  }
+
+  if (session.step === 'confirm_extracted') {
+    if (textNorm.includes('sim') || textNorm.includes('s ') || textNorm === 's') {
+      try {
+        const defaultExt = (session.resume?.mimetype || '').startsWith('image/') ? (session.resume.mimetype === 'image/png' ? 'png' : session.resume.mimetype === 'image/webp' ? 'webp' : 'jpg') : 'pdf';
+        const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
+        await saveWhatsappApplication({
+          chatId,
+          fullName: session.data.fullName || 'Não informado',
+          email: session.data.email || null,
+          whatsappNumber: session.data.phone || chatId,
+          city: session.data.city || null,
+          jobInterest: session.data.jobInterest || 'Não especificado',
+          resumeBase64: session.resume?.base64 || '',
+          resumeFilename: session.resume?.filename || defaultName,
+          resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
+        });
+        const resposta =
+          '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
+        await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+        await enviarMensagemSegura(sock, chatId, resposta);
+        applicationSessions.delete(chatId);
+        return true;
+      } catch (error) {
+        console.error('[WhatsApp] Erro ao salvar candidatura:', error);
+        await enviarMensagemSegura(sock, chatId, 'Desculpe, houve um erro ao salvar sua candidatura. Tente novamente mais tarde ou entre em contato conosco.');
+        return true;
+      }
+    }
+    if (textNorm.includes('não') || textNorm.includes('nao')) {
+      const resposta = 'Sem problemas! Por favor, informe seu *nome completo* para preenchermos manualmente.';
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(sock, chatId, resposta);
+      session.step = 'name';
+      session.data = {};
+      return true;
     }
     return true;
   }

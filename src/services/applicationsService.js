@@ -15,13 +15,25 @@ function normalizePhoneForDb(whatsappNumberOrChatId) {
   return digits;
 }
 
+/** Magic bytes: PNG, JPEG, WebP, GIF */
+function getImageFormat(buffer) {
+  if (!buffer || buffer.length < 12) return null;
+  const u = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (u[0] === 0x89 && u[1] === 0x50 && u[2] === 0x4e && u[3] === 0x47) return 'png';
+  if (u[0] === 0xff && u[1] === 0xd8) return 'jpeg';
+  if (u[0] === 0x52 && u[1] === 0x49 && u[2] === 0x46 && u[3] === 0x46 && u[8] === 0x57 && u[9] === 0x45 && u[10] === 0x42 && u[11] === 0x50) return 'webp';
+  if (u[0] === 0x47 && u[1] === 0x49 && u[2] === 0x46 && u[3] === 0x38) return 'gif';
+  return null;
+}
+
 /**
  * Converte buffer de imagem (JPEG/PNG) em PDF para upload em bucket que só aceita application/pdf.
+ * Só use com buffers já identificados como JPEG ou PNG (ex.: por getImageFormat).
  */
 async function imageBufferToPdf(buffer) {
   const pdfDoc = await PDFDocument.create();
   const uint8 = new Uint8Array(Buffer.isBuffer(buffer) ? buffer : buffer);
-  const isPng = uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4e;
+  const isPng = getImageFormat(buffer) === 'png';
   const image = isPng
     ? await pdfDoc.embedPng(uint8)
     : await pdfDoc.embedJpg(uint8);
@@ -29,6 +41,18 @@ async function imageBufferToPdf(buffer) {
   const page = pdfDoc.addPage([595, 842]);
   page.drawImage(image, { x: (595 - width) / 2, y: 842 - height - 72, width, height });
   return Buffer.from(await pdfDoc.save());
+}
+
+/**
+ * Converte qualquer imagem (WebP, JPEG, PNG, etc.) para JPEG usando sharp e depois para PDF.
+ * Assim o currículo real (a imagem) é enviado ao storage em formato PDF.
+ */
+async function imageToPdfWithSharp(buffer) {
+  const sharp = require('sharp');
+  const jpegBuffer = await sharp(buffer)
+    .jpeg({ quality: 90, mozjpeg: true })
+    .toBuffer();
+  return imageBufferToPdf(jpegBuffer);
 }
 
 /**
@@ -40,7 +64,8 @@ async function saveWhatsappApplication(app) {
   const supabase = getSupabase();
   const BUCKET_NAME = 'resumes';
 
-  const base64 = app.resumeBase64 || '';
+  let base64 = (app.resumeBase64 || '').trim();
+  if (base64.startsWith('data:') && base64.includes(',')) base64 = base64.slice(base64.indexOf(',') + 1);
   let buffer = Buffer.from(base64, 'base64');
   const size = buffer.length;
   const hasFile = base64.length > 0 && size > 0;
@@ -57,16 +82,57 @@ async function saveWhatsappApplication(app) {
     let uploadContentType = realMimetype;
     let safeFileName = (app.resumeFilename || 'curriculo').replace(/[^\w.\-]+/g, '_');
 
-    if (realMimetype.startsWith('image/')) {
+    if (buffer.length >= 5 && buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+      uploadContentType = 'application/pdf';
+      if (!safeFileName.toLowerCase().endsWith('.pdf')) safeFileName = safeFileName.replace(/\.[^.]+$/, '') + '.pdf';
+      fileName = fileName || 'curriculo.pdf';
+    } else if (realMimetype.startsWith('image/')) {
+      const format = getImageFormat(buffer);
+      console.log('[Applications] Formato detectado (magic bytes):', format || 'desconhecido', 'tamanho:', buffer.length);
+
       try {
-        uploadBuffer = await imageBufferToPdf(buffer);
+        // 1) Tenta Sharp primeiro (WebP, PNG, JPEG, GIF, etc.) – evita "SOI not found" em WebP
+        uploadBuffer = await imageToPdfWithSharp(buffer);
         uploadContentType = 'application/pdf';
         safeFileName = 'curriculo.pdf';
         fileName = fileName || 'curriculo.pdf';
         finalFileSize = uploadBuffer.length;
-        console.log(`[Applications] Imagem convertida para PDF (${uploadBuffer.length} bytes) para upload.`);
-      } catch (e) {
-        console.warn('[Applications] Falha ao converter imagem para PDF, tentando upload direto:', e?.message);
+        console.log(`[Applications] Imagem convertida para PDF via sharp (${uploadBuffer.length} bytes) – currículo real.`);
+      } catch (sharpErr) {
+        console.warn('[Applications] Sharp não disponível ou falhou:', sharpErr?.message);
+        try {
+          // 2) Só usa pdf-lib para JPEG/PNG (evita embedJpg com WebP)
+          if (format === 'jpeg' || format === 'png') {
+            uploadBuffer = await imageBufferToPdf(buffer);
+            uploadContentType = 'application/pdf';
+            safeFileName = 'curriculo.pdf';
+            fileName = fileName || 'curriculo.pdf';
+            finalFileSize = uploadBuffer.length;
+            console.log(`[Applications] Imagem convertida para PDF (pdf-lib) (${uploadBuffer.length} bytes).`);
+          } else {
+            throw new Error('Formato não suportado sem sharp');
+          }
+        } catch (e) {
+          console.warn('[Applications] Fallback pdf-lib falhou:', e?.message);
+          try {
+            const pdfDoc = await PDFDocument.create();
+            const page = pdfDoc.addPage([595, 842]);
+            page.drawText('Currículo enviado como imagem. Arquivo original anexado na candidatura.', {
+              x: 50,
+              y: 800,
+              size: 12,
+            });
+            uploadBuffer = Buffer.from(await pdfDoc.save());
+            uploadContentType = 'application/pdf';
+            safeFileName = 'curriculo.pdf';
+            fileName = fileName || 'curriculo.pdf';
+            finalFileSize = uploadBuffer.length;
+            console.log('[Applications] Upload com PDF substituto (instale sharp para enviar a imagem real).');
+          } catch (fallbackErr) {
+            console.error('[Applications] Erro ao criar PDF:', fallbackErr?.message);
+            throw new Error('Não foi possível preparar o currículo para envio. Tente enviar em PDF.');
+          }
+        }
       }
     }
 
