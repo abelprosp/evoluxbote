@@ -1,9 +1,20 @@
 # EvoluxRH Bot: API na Vercel + Evolution API
 
-Este projeto pode rodar de duas formas:
+Este projeto pode rodar de três formas:
 
 1. **Baileys (local)** – `npm start` – conexão direta com WhatsApp via QR Code.
-2. **Evolution API + Vercel** – você hospeda a API na Vercel e conecta o WhatsApp pela Evolution API (webhook).
+2. **Evolution API + webhook local** – `npm run webhook` – servidor local recebe o webhook (use ngrok para expor a URL à Evolution).
+3. **Evolution API + Vercel** – deploy na Vercel; a Evolution envia o webhook para a URL do projeto.
+
+## Rodar webhook localmente (sem Vercel)
+
+1. Configure o `.env` com `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE` (e as demais variáveis: OpenAI, Supabase).
+2. Inicie o servidor: `npm run webhook` (porta padrão: 3333).
+3. Exponha a URL para a internet (ex.: [ngrok](https://ngrok.com) – `ngrok http 3333`).
+4. Na Evolution API, configure o webhook com a URL exposta: `https://seu-ngrok.ngrok.io/api/webhook`.
+5. Ative **webhookBase64: true** e o evento **MESSAGES_UPSERT**.
+
+Assim o bot funciona 100% via Evolution API, sem Baileys e sem Vercel.
 
 ## Deploy na Vercel
 

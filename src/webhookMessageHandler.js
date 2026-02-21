@@ -77,18 +77,32 @@ function getMediaInfo(message) {
 }
 
 /**
+ * Extrai o nome da instância (string) do payload da Evolution API.
+ * Suporta: string ou objeto { name, instanceName, instance } (Evolution v2).
+ */
+function resolveInstanceName(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object') return (value.name || value.instanceName || value.instance || '').trim();
+  return '';
+}
+
+/**
  * Normaliza o payload da Evolution API para uma lista de mensagens.
- * Suporta: data.messages[] e data como mensagem única; key.remoteJid, message, messageTimestamp.
+ * Suporta: event MESSAGES_UPSERT ou messages.upsert; data.messages[] e data como mensagem única; instance como objeto.
  */
 function parseEvolutionPayload(body) {
   const event = body?.event || body?.type;
-  const instance = body?.instance || body?.data?.instance || getEvolutionConfig().instance;
+  const rawInstance = body?.instance ?? body?.data?.instance ?? getEvolutionConfig().instance;
+  const instance = resolveInstanceName(rawInstance) || resolveInstanceName(getEvolutionConfig().instance);
   const data = body?.data || body;
 
   if (!data || typeof data !== 'object') return { instance, messages: [] };
-  const ev = (event || '').toLowerCase();
+  const ev = (event || '').toLowerCase().replace(/\s/g, '');
   const hasMessages = Array.isArray(data.messages) || (data.key && (data.message || data.messageBody !== undefined));
-  if (ev !== 'messages.upsert' && !hasMessages) {
+  const isMessagesUpsert =
+    ev === 'messages.upsert' || ev === 'messages_upsert' || ev === 'messages-upsert' || (ev.includes('messages') && ev.includes('upsert'));
+  if (!isMessagesUpsert && !hasMessages) {
     return { instance, messages: [] };
   }
 
@@ -555,6 +569,9 @@ async function processWebhookBody(body) {
     console.warn('[Webhook] Payload sem instance, usando config');
   }
   const inst = instance || getEvolutionConfig().instance;
+  if (messages.length > 0) {
+    console.log('[Webhook] Evolution API: event processado, instance:', inst, 'mensagens:', messages.length);
+  }
   let processed = 0;
   for (const msg of messages) {
     if (!msg.chatId) continue;
