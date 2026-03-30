@@ -15,6 +15,7 @@ const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensag
 const { saveWhatsappApplication } = require('./services/applicationsService');
 const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 const { cfg } = require('./config');
+const { matchesCompanyHiringIntent, getLuizaRedirectMessage } = require('./companyHiringFlow');
 
 function formatarTelefone(digits) {
   const d = String(digits).replace(/\D/g, '');
@@ -378,6 +379,15 @@ async function handleIncomingMessage(
       return;
     }
 
+    if (hasBody && matchesCompanyHiringIntent(textNorm)) {
+      adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      const resposta = getLuizaRedirectMessage();
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(sock, chatId, resposta);
+      processingMessages.delete(chatId);
+      return;
+    }
+
     const isResumeMedia = isDocument || isImage;
     if (isResumeMedia && !hasSession) {
       const resposta =
@@ -399,12 +409,13 @@ async function handleIncomingMessage(
     }
 
     const nomeContato = 'Candidato';
+    const primeiraConversa = !conversas.has(chatId);
     const contexto = obterContexto(chatId, nomeContato, chatId);
 
-    if (!conversas.has(chatId)) {
+    if (primeiraConversa) {
       console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação...`);
       const resposta =
-        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.';
+        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, me diga — eu te encaminho para a Luiza no WhatsApp dela.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
     }

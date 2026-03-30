@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { cfg } = require('./config');
+const { getInstrucaoEmpresasContratantes } = require('./companyHiringFlow');
 
 // Configuração para chamadas à API (suporta OpenAI, GROQ e outras APIs compatíveis)
 const apiUrl = cfg.OPENAI_API_URL || process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
@@ -34,6 +35,7 @@ Você deve:
 - Entender o contexto completo da conversa, incluindo mensagens anteriores que você enviou
 - Manter consistência nas respostas baseando-se no histórico da conversa
 - Referenciar informações mencionadas anteriormente quando relevante
+- Se a pessoa for EMPRESA ou quiser CONTRATAR (não candidato): este canal é para candidatos; direcione para a Luiza no WhatsApp comercial — use o link que será indicado nas instruções internas abaixo
 
 Quando o candidato quiser se candidatar:
 1. Solicite o currículo (PDF, DOCX ou imagem)
@@ -80,6 +82,7 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
   try {
     // Informação sobre vagas (apenas indicar o site, sem listar)
     const infoVagas = getInfoVagasParaContexto();
+    const infoEmpresas = getInstrucaoEmpresasContratantes();
     
     // Construir histórico de mensagens
     const mensagens = [
@@ -114,7 +117,7 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
     }
     
     // Adicionar instrução sobre vagas (sempre)
-    conteudoMensagem += infoVagas;
+    conteudoMensagem += infoVagas + infoEmpresas;
 
     // Adicionar mensagem atual do cliente
     mensagens.push({

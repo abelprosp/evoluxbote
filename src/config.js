@@ -16,6 +16,8 @@ function getConfig() {
     // Empresa
     COMPANY_NAME: process.env.COMPANY_NAME || 'EvoluxRH',
     COMPANY_REGISTRATION_LINK: process.env.COMPANY_REGISTRATION_LINK || 'https://evoluxrh.com/cadastro',
+    // WhatsApp comercial (Luiza) — empresas que querem contratar / serviços de RH
+    LUIZA_WHATSAPP_PHONE: (process.env.LUIZA_WHATSAPP_PHONE || '5551993796131').replace(/\D/g, '') || '5551993796131',
     TIMEZONE: process.env.TIMEZONE || 'America/Sao_Paulo',
     
     // Delays entre respostas (em milissegundos)

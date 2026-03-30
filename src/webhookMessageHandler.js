@@ -3,6 +3,7 @@
  * Reutiliza a lógica do bot (IA, candidatura, comandos #assumir/#pausa) e envia respostas via Evolution API.
  */
 const { cfg } = require('./config');
+const { matchesCompanyHiringIntent, getLuizaRedirectMessage } = require('./companyHiringFlow');
 const { sendText, getEvolutionConfig } = require('./services/evolutionService');
 const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
@@ -283,6 +284,14 @@ async function handleOneMessage(instance, payload) {
       return;
     }
 
+    if (hasBody && matchesCompanyHiringIntent(textNorm)) {
+      adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      const resposta = getLuizaRedirectMessage();
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(chatId, resposta);
+      return;
+    }
+
     if ((isDocument || isImage) && !hasSession) {
       const resposta =
         'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
@@ -301,10 +310,11 @@ async function handleOneMessage(instance, payload) {
       }
     }
 
+    const primeiraConversa = !conversas.has(chatId);
     const contexto = obterContexto(chatId, 'Candidato', chatId);
-    if (!conversas.has(chatId)) {
+    if (primeiraConversa) {
       const resposta =
-        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.';
+        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, me diga — eu te encaminho para a Luiza no WhatsApp dela.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(chatId, resposta);
     }
