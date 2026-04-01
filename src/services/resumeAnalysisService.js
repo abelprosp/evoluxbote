@@ -5,12 +5,8 @@
 const axios = require('axios');
 const { cfg } = require('../config');
 
-// pdf-parse 2.x: classe PDFParse, método getText() retorna { text: string }
-const pdfParseModule = require('pdf-parse');
-const PDFParseClass =
-  pdfParseModule.PDFParse ||
-  (pdfParseModule.default && pdfParseModule.default.PDFParse) ||
-  (typeof pdfParseModule.default === 'function' ? pdfParseModule.default : null);
+// pdf-parse 1.x: função (buffer) => Promise<{ text, ... }> — sem @napi-rs/canvas (adequado a Vercel/serverless)
+const pdfParse = require('pdf-parse');
 
 const apiUrl = (cfg.OPENAI_API_URL || process.env.OPENAI_API_URL || '').replace(/\/$/, '');
 const apiKey = cfg.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
@@ -33,24 +29,16 @@ Regras:
 Responda somente o JSON, nada mais.`;
 
 /**
- * Extrai texto de buffer PDF (pdf-parse 2.x: PDFParse + getText()).
+ * Extrai texto de buffer PDF (pdf-parse 1.x).
  * @param {Buffer} buffer
  * @returns {Promise<string>}
  */
 async function extractTextFromPdf(buffer) {
-  if (typeof PDFParseClass !== 'function') {
-    throw new Error('pdf-parse: PDFParse não encontrado. Use pdf-parse@2.x.');
+  if (typeof pdfParse !== 'function') {
+    throw new Error('pdf-parse: exportação inválida.');
   }
-  const parser = new PDFParseClass({ data: buffer });
-  try {
-    const result = await parser.getText();
-    const text = result?.text ?? (result?.pages && result.pages.map((p) => p?.text).filter(Boolean).join('\n'));
-    if (parser.destroy) await parser.destroy().catch(() => {});
-    return (text || '').trim();
-  } catch (e) {
-    if (parser.destroy) await parser.destroy().catch(() => {});
-    throw e;
-  }
+  const data = await pdfParse(buffer);
+  return (data?.text || '').trim();
 }
 
 /**
