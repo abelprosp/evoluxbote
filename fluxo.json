@@ -339,7 +339,7 @@
         "bodyParameters": {
           "parameters": [
             { "name": "number", "value": "={{ ($json.chatId || $json.chat_id || '').replace(/@.*$/, '') }}" },
-            { "name": "text", "value": "Ol├í! Sou a *Iza da EvoluxRH* ­ƒÿè\n\nVi que voc├¬ enviou um arquivo ou imagem! ­ƒôä­ƒû╝´©Å\n\nPara registrar sua candidatura, me diga \"quero me candidatar\" e eu te guio passo a passo!" }
+            { "name": "text", "value": "Ol├í! Sou a *Iza da EvoluxRH* ­ƒÿè\n\nVi que voc├¬ enviou um arquivo ou imagem! ­ƒôä­ƒû╝´©Å\n\nPara registrar sua candidatura, responda *\"QUERO ME CANDIDATAR\"* e eu te guio passo a passo.\n\nSe voc├¬ ├® *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *\"SOU UMA EMPRESA\"* para eu te encaminhar para falar com a *Luiza* no WhatsApp profissional dela." }
           ]
         },
         "options": { "timeout": 10000 }
@@ -483,7 +483,7 @@
         "bodyParameters": {
           "parameters": [
             { "name": "number", "value": "={{ ($json.chatId || '').replace(/@.*$/, '') }}" },
-            { "name": "text", "value": "Ol├í! Sou a Iza da EvoluxRH! ­ƒÿè\n\nComo posso ajudar hoje? H├í vagas dispon├¡veis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar." }
+            { "name": "text", "value": "Ol├í! Sou a Iza da EvoluxRH! ­ƒÿè\n\nPara continuar, me conte quem voc├¬ ├®:\n\n- Se voc├¬ ├® *candidato(a)* e quer se inscrever para vagas, responda *\"QUERO ME CANDIDATAR\"*.\n- Se voc├¬ ├® *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *\"SOU UMA EMPRESA\"* e eu te encaminho para falar com a *Luiza* no WhatsApp profissional dela.\n\nEnquanto isso, voc├¬ tamb├®m pode consultar vagas dispon├¡veis no site evoluxrh.com.br." }
           ]
         },
         "options": { "timeout": 10000 }

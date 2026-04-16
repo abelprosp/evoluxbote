@@ -391,7 +391,7 @@ async function handleIncomingMessage(
     const isResumeMedia = isDocument || isImage;
     if (isResumeMedia && !hasSession) {
       const resposta =
-        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
+        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, responda *"QUERO ME CANDIDATAR"* e eu te guio passo a passo.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *"SOU UMA EMPRESA"* para eu te encaminhar para a Luiza no WhatsApp profissional dela.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
       processingMessages.delete(chatId);
@@ -415,7 +415,7 @@ async function handleIncomingMessage(
     if (primeiraConversa) {
       console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação...`);
       const resposta =
-        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, me diga — eu te encaminho para a Luiza no WhatsApp dela.';
+        'Olá! Sou a Iza da EvoluxRH! 😊\n\nPara continuar, me conte quem é você:\n\n- Se você é *candidato(a)* e quer se inscrever para vagas, responda *"QUERO ME CANDIDATAR"*.\n- Se você é *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *"SOU UMA EMPRESA"* e eu te encaminho para falar com a *Luiza* no WhatsApp profissional dela.\n\nEnquanto isso, você também pode consultar vagas disponíveis no site evoluxrh.com.br.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
     }
