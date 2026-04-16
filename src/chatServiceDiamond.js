@@ -35,7 +35,7 @@ Você deve:
 - Entender o contexto completo da conversa, incluindo mensagens anteriores que você enviou
 - Manter consistência nas respostas baseando-se no histórico da conversa
 - Referenciar informações mencionadas anteriormente quando relevante
-- Se a pessoa for EMPRESA ou quiser CONTRATAR (não candidato): este canal é para candidatos; direcione para a Luiza no WhatsApp comercial — use o link que será indicado nas instruções internas abaixo
+- Não trate diretamente fluxos de EMPRESAS/CONTRATAÇÃO; esse tipo de redirecionamento é feito por outra camada do sistema.
 
 Quando o candidato quiser se candidatar:
 1. Solicite o currículo (PDF, DOCX ou imagem)
@@ -82,7 +82,6 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
   try {
     // Informação sobre vagas (apenas indicar o site, sem listar)
     const infoVagas = getInfoVagasParaContexto();
-    const infoEmpresas = getInstrucaoEmpresasContratantes();
     
     // Construir histórico de mensagens
     const mensagens = [
@@ -117,7 +116,7 @@ async function gerarResposta(contexto, mensagemCliente, descricaoImagem = null) 
     }
     
     // Adicionar instrução sobre vagas (sempre)
-    conteudoMensagem += infoVagas + infoEmpresas;
+    conteudoMensagem += infoVagas;
 
     // Adicionar mensagem atual do cliente
     mensagens.push({
