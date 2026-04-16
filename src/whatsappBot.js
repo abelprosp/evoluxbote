@@ -413,11 +413,13 @@ async function handleIncomingMessage(
     const contexto = obterContexto(chatId, nomeContato, chatId);
 
     if (primeiraConversa) {
-      console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação...`);
+      console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação (sem resposta da IA)...`);
       const resposta =
         'Olá! Sou a Iza da EvoluxRH! 😊\n\nPara continuar, me conte quem é você:\n\n- Se você é *candidato(a)* e quer se inscrever para vagas, responda *"QUERO ME CANDIDATAR"*.\n- Se você é *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *"SOU UMA EMPRESA"* e eu te encaminho para falar com a *Luiza* no WhatsApp profissional dela.\n\nEnquanto isso, você também pode consultar vagas disponíveis no site evoluxrh.com.br.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
       await enviarMensagemSegura(sock, chatId, resposta);
+      // Na primeira mensagem, enviamos apenas a saudação e não chamamos a IA
+      return;
     }
 
     adicionarMensagemAoHistorico(chatId, 'user', rawText || '(mídia)');
