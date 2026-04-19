@@ -11,11 +11,11 @@ const qrcodeTerminal = require('qrcode-terminal');
 const path = require('path');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
+const { adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { saveWhatsappApplication } = require('./services/applicationsService');
 const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 const { cfg } = require('./config');
-const { matchesCompanyHiringIntent, getLuizaRedirectMessage } = require('./companyHiringFlow');
+const { runRecruitmentFunnelTurn, deliverWithDelays } = require('./recruitmentFunnel');
 
 function formatarTelefone(digits) {
   const d = String(digits).replace(/\D/g, '');
@@ -73,6 +73,7 @@ function createWhatsAppClient() {
   console.log('[WhatsApp] Iniciando Baileys (conexão direta, sem browser)...');
 
   const applicationSessions = new Map();
+  const funnelAwaitingClassification = new Set();
   const processedMessageIds = new Map();
   const PROCESSED_TTL_MS = 5 * 60 * 1000;
   const pausedChats = new Set();
@@ -224,6 +225,7 @@ function createWhatsAppClient() {
             contentType,
             msg,
             applicationSessions,
+            funnelAwaitingClassification,
             processedMessageIds,
             pausedChats,
             wasProcessed,
@@ -259,6 +261,7 @@ async function handleIncomingMessage(
     contentType,
     msg,
     applicationSessions,
+    funnelAwaitingClassification,
     pausedChats,
     wasProcessed,
     markProcessed,
@@ -349,6 +352,7 @@ async function handleIncomingMessage(
       const handled = await handleApplicationStepBaileys(
         sock,
         applicationSessions,
+        funnelAwaitingClassification,
         chatId,
         msg,
         rawText,
@@ -364,76 +368,33 @@ async function handleIncomingMessage(
       }
     }
 
-    const isApplicationTrigger = [
-      'quero me candidatar',
-      'gostaria de me candidatar',
-      'fazer minha candidatura',
-      'enviar meu curriculo',
-      'enviar currículo',
-      'quero trabalhar',
-      'quero uma vaga',
-    ].some((k) => textNorm.includes(k));
-    if (isApplicationTrigger && !hasSession) {
-      await startApplicationFlow(sock, applicationSessions, chatId, enviarMensagemSegura, calcularDelayResposta);
+    const awaiting = funnelAwaitingClassification.has(chatId);
+    const sendMessages = async (msgs) => {
+      await deliverWithDelays(msgs, calcularDelayResposta, async (m) => {
+        await enviarMensagemSegura(sock, chatId, m);
+      });
+    };
+
+    const funnelResult = await runRecruitmentFunnelTurn({
+      textNorm,
+      hasBody,
+      hasMedia,
+      awaitingClassification: awaiting,
+      sendMessages,
+    });
+
+    if (funnelResult.awaitingClassification) funnelAwaitingClassification.add(chatId);
+    else funnelAwaitingClassification.delete(chatId);
+
+    if (funnelResult.startApplication) {
+      applicationSessions.set(chatId, { step: 'resume', data: {}, resume: null });
+    }
+
+    if (funnelResult.handled) {
+      if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      else if (hasMedia) adicionarMensagemAoHistorico(chatId, 'user', '(mídia)');
       processingMessages.delete(chatId);
       return;
-    }
-
-    if (hasBody && matchesCompanyHiringIntent(textNorm)) {
-      adicionarMensagemAoHistorico(chatId, 'user', rawText);
-      const resposta = getLuizaRedirectMessage();
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(sock, chatId, resposta);
-      processingMessages.delete(chatId);
-      return;
-    }
-
-    const isResumeMedia = isDocument || isImage;
-    if (isResumeMedia && !hasSession) {
-      const resposta =
-        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, responda *"QUERO ME CANDIDATAR"* e eu te guio passo a passo.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *"SOU UMA EMPRESA"* para eu te encaminhar para a Luiza no WhatsApp profissional dela.';
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(sock, chatId, resposta);
-      processingMessages.delete(chatId);
-      return;
-    }
-
-    let descricaoImagem = null;
-    if (isImage) {
-      try {
-        const buffer = await downloadMediaMessage(msg, 'buffer', {}, sock.updateMediaMessage ? { reuploadRequest: sock.updateMediaMessage } : {});
-        if (buffer) descricaoImagem = await analisarImagem(Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer), rawText);
-      } catch (e) {
-        console.error('[WhatsApp] Erro ao processar mídia:', e?.message);
-      }
-    }
-
-    const nomeContato = 'Candidato';
-    const primeiraConversa = !conversas.has(chatId);
-    const contexto = obterContexto(chatId, nomeContato, chatId);
-
-    if (primeiraConversa) {
-      console.log(`[WhatsApp] 👋 Primeira mensagem de ${chatId}, enviando saudação (sem resposta da IA)...`);
-      const resposta =
-        'Olá! Sou a Iza da EvoluxRH! 😊\n\nPara continuar, me conte quem é você:\n\n- Se você é *candidato(a)* e quer se inscrever para vagas, responda *"QUERO ME CANDIDATAR"*.\n- Se você é *empresa* e quer *contratar* ou fechar *parceria comercial*, responda *"SOU UMA EMPRESA"* e eu te encaminho para falar com a *Luiza* no WhatsApp profissional dela.\n\nEnquanto isso, você também pode consultar vagas disponíveis no site evoluxrh.com.br.';
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(sock, chatId, resposta);
-      // Na primeira mensagem, enviamos apenas a saudação e não chamamos a IA
-      return;
-    }
-
-    adicionarMensagemAoHistorico(chatId, 'user', rawText || '(mídia)');
-    console.log(`[WhatsApp] 🤖 Gerando resposta com IA para ${chatId}...`);
-    try {
-      const resposta = await gerarResposta(contexto, rawText || '', descricaoImagem);
-      if (resposta && resposta.trim()) {
-        const delay = calcularDelayResposta(resposta);
-        await new Promise((r) => setTimeout(r, delay));
-        await enviarMensagemSegura(sock, chatId, resposta, true);
-      }
-    } catch (error) {
-      console.error(`[WhatsApp] ❌ Erro ao gerar/enviar resposta:`, error?.message);
-      await enviarMensagemSegura(sock, chatId, 'Desculpe, houve um erro ao processar sua mensagem. Tente novamente, por favor.');
     }
   } catch (error) {
     console.error('[WhatsApp] ❌ Erro ao processar mensagem:', error?.message);
@@ -447,16 +408,10 @@ async function handleIncomingMessage(
   }
 }
 
-async function startApplicationFlow(sock, applicationSessions, chatId, enviarMensagemSegura, calcularDelayResposta) {
-  applicationSessions.set(chatId, { step: 'resume', data: {}, resume: null });
-  const resposta = 'Ótimo! Vamos começar sua candidatura! 📝\n\nPor favor, envie seu *currículo* (PDF, DOCX ou imagem).';
-  await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-  await enviarMensagemSegura(sock, chatId, resposta);
-}
-
 async function handleApplicationStepBaileys(
   sock,
   applicationSessions,
+  funnelAwaitingClassification,
   chatId,
   msg,
   text,
@@ -559,6 +514,7 @@ async function handleApplicationStepBaileys(
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(sock, chatId, resposta);
         applicationSessions.delete(chatId);
+        funnelAwaitingClassification.delete(chatId);
         return true;
       } catch (error) {
         console.error('[WhatsApp] Erro ao salvar candidatura:', error);
@@ -676,6 +632,7 @@ async function handleApplicationStepBaileys(
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(sock, chatId, resposta);
         applicationSessions.delete(chatId);
+        funnelAwaitingClassification.delete(chatId);
         return true;
       } catch (error) {
         console.error('[WhatsApp] Erro ao salvar candidatura:', error);

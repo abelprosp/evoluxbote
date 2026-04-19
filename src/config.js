@@ -36,6 +36,14 @@ function getConfig() {
     EVOLUTION_API_URL: process.env.EVOLUTION_API_URL || '',
     EVOLUTION_API_KEY: process.env.EVOLUTION_API_KEY || '',
     EVOLUTION_INSTANCE: process.env.EVOLUTION_INSTANCE || '',
+
+    // Job diário: últimas N conversas Evolution → Supabase (sem enviar WhatsApp)
+    DAILY_RESUME_SYNC_CHAT_LIMIT: process.env.DAILY_RESUME_SYNC_CHAT_LIMIT
+      ? parseInt(process.env.DAILY_RESUME_SYNC_CHAT_LIMIT, 10)
+      : 30,
+    DAILY_RESUME_SYNC_MESSAGES_LIMIT: process.env.DAILY_RESUME_SYNC_MESSAGES_LIMIT
+      ? parseInt(process.env.DAILY_RESUME_SYNC_MESSAGES_LIMIT, 10)
+      : 80,
   };
   return cfg;
 }

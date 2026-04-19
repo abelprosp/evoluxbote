@@ -3,21 +3,25 @@
  * Reutiliza a lógica do bot (IA, candidatura, comandos #assumir/#pausa) e envia respostas via Evolution API.
  */
 const { cfg } = require('./config');
-const { matchesCompanyHiringIntent, getLuizaRedirectMessage } = require('./companyHiringFlow');
 const { sendText, getEvolutionConfig } = require('./services/evolutionService');
-const { obterContexto, gerarResposta, analisarImagem, conversas, adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
+const { adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
+const { runRecruitmentFunnelTurn, deliverWithDelays } = require('./recruitmentFunnel');
 const { saveWhatsappApplication } = require('./services/applicationsService');
 const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 
 // Estado em memória (persiste em warm invocations no serverless)
 const globalState = global.evoluxWebhookState || {
   applicationSessions: new Map(),
+  funnelAwaitingClassification: new Set(),
   pausedChats: new Set(),
   processedMessageIds: new Map(),
   processingMessages: new Map(),
   lastMessageTime: new Map(),
 };
 global.evoluxWebhookState = globalState;
+if (!globalState.funnelAwaitingClassification) {
+  globalState.funnelAwaitingClassification = new Set();
+}
 
 const PROCESSED_TTL_MS = 5 * 60 * 1000;
 
@@ -267,68 +271,32 @@ async function handleOneMessage(instance, payload) {
       if (handled) return;
     }
 
-    const isApplicationTrigger = [
-      'quero me candidatar',
-      'gostaria de me candidatar',
-      'fazer minha candidatura',
-      'enviar meu curriculo',
-      'enviar currículo',
-      'quero trabalhar',
-      'quero uma vaga',
-    ].some((k) => textNorm.includes(k));
-    if (isApplicationTrigger && !hasSession) {
+    const awaiting = globalState.funnelAwaitingClassification.has(chatId);
+    const sendMessages = async (msgs) => {
+      await deliverWithDelays(msgs, calcularDelayResposta, async (m) => {
+        await enviarMensagemSegura(chatId, m);
+      });
+    };
+
+    const funnelResult = await runRecruitmentFunnelTurn({
+      textNorm,
+      hasBody,
+      hasMedia,
+      awaitingClassification: awaiting,
+      sendMessages,
+    });
+
+    if (funnelResult.awaitingClassification) globalState.funnelAwaitingClassification.add(chatId);
+    else globalState.funnelAwaitingClassification.delete(chatId);
+
+    if (funnelResult.startApplication) {
       globalState.applicationSessions.set(chatId, { step: 'resume', data: {}, resume: null });
-      const resposta = 'Ótimo! Vamos começar sua candidatura! 📝\n\nPor favor, envie seu *currículo* (PDF, DOCX ou imagem).';
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(chatId, resposta);
+    }
+
+    if (funnelResult.handled) {
+      if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      else if (hasMedia) adicionarMensagemAoHistorico(chatId, 'user', '(mídia)');
       return;
-    }
-
-    if (hasBody && matchesCompanyHiringIntent(textNorm)) {
-      adicionarMensagemAoHistorico(chatId, 'user', rawText);
-      const resposta = getLuizaRedirectMessage();
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(chatId, resposta);
-      return;
-    }
-
-    if ((isDocument || isImage) && !hasSession) {
-      const resposta =
-        'Olá! Sou a *Iza da EvoluxRH* 😊\n\nVi que você enviou um arquivo ou imagem! 📄🖼️\n\nPara registrar sua candidatura, me diga "quero me candidatar" e eu te guio passo a passo!';
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(chatId, resposta);
-      return;
-    }
-
-    let descricaoImagem = null;
-    if (isImage && mediaBase64) {
-      try {
-        const buffer = Buffer.from(mediaBase64, 'base64');
-        descricaoImagem = await analisarImagem(buffer, rawText);
-      } catch (e) {
-        console.error('[Webhook] Erro ao analisar imagem:', e?.message);
-      }
-    }
-
-    const primeiraConversa = !conversas.has(chatId);
-    const contexto = obterContexto(chatId, 'Candidato', chatId);
-    if (primeiraConversa) {
-      const resposta =
-        'Olá! Sou a Iza da EvoluxRH! 😊\n\nComo posso ajudar hoje? Há vagas disponíveis no site evoluxrh.com.br. Se quiser se candidatar, posso te orientar.\n\nSe você é *empresa* e quer *contratar* ou fechar *parceria comercial*, me diga — eu te encaminho para a Luiza no WhatsApp dela.';
-      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-      await enviarMensagemSegura(chatId, resposta);
-    }
-
-    adicionarMensagemAoHistorico(chatId, 'user', rawText || '(mídia)');
-    try {
-      const resposta = await gerarResposta(contexto, rawText || '', descricaoImagem);
-      if (resposta && resposta.trim()) {
-        await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
-        await enviarMensagemSegura(chatId, resposta, true);
-      }
-    } catch (error) {
-      console.error('[Webhook] Erro ao gerar resposta:', error?.message);
-      await enviarMensagemSegura(chatId, 'Desculpe, houve um erro ao processar sua mensagem. Tente novamente, por favor.');
     }
   } catch (err) {
     console.error('[Webhook] Erro:', err?.message);
@@ -433,6 +401,7 @@ async function handleApplicationStepEvolution(
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(chatId, resposta);
         globalState.applicationSessions.delete(chatId);
+        globalState.funnelAwaitingClassification.delete(chatId);
         return true;
       } catch (error) {
         console.error('[Webhook] Erro ao salvar candidatura:', error);
@@ -548,6 +517,7 @@ async function handleApplicationStepEvolution(
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(chatId, resposta);
         globalState.applicationSessions.delete(chatId);
+        globalState.funnelAwaitingClassification.delete(chatId);
         return true;
       } catch (error) {
         console.error('[Webhook] Erro ao salvar candidatura:', error);

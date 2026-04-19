@@ -101,4 +101,9 @@ server.listen(PORT, () => {
   console.log(`   Webhook: http://localhost:${PORT}/api/webhook (ou /webhook ou /)`);
   console.log('   Configure essa URL na Evolution API (use ngrok se for local).');
   console.log('   Ative webhookBase64: true para currículos em imagem/PDF.');
+
+  if (process.env.SCHEDULE_DAILY_RESUME_SYNC === 'true') {
+    const { scheduleDailyResumeInboxSync } = require('./src/jobs/dailyResumeInboxSync');
+    scheduleDailyResumeInboxSync(process.env.DAILY_RESUME_SYNC_CRON, cfg.TIMEZONE);
+  }
 });

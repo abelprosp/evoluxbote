@@ -62,8 +62,94 @@ async function sendText(instance, numberOrJid, text) {
   }
 }
 
+function buildHeaders(apiKey) {
+  return {
+    'Content-Type': 'application/json',
+    apikey: apiKey,
+  };
+}
+
+/**
+ * Lista conversas da instância (Evolution API).
+ * @returns {Promise<{ ok: boolean, data?: unknown, error?: string }>}
+ */
+async function findChats(instance) {
+  const { baseUrl, apiKey, instance: defaultInstance } = getEvolutionConfig();
+  const inst = encodeURIComponent(instance || defaultInstance);
+  if (!baseUrl || !apiKey || !inst) {
+    return { ok: false, error: 'Evolution API não configurada' };
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/findChats/${inst}`;
+  try {
+    const { data, status } = await axios.get(url, { headers: buildHeaders(apiKey), timeout: 120000 });
+    if (status >= 200 && status < 300) return { ok: true, data };
+    return { ok: false, error: data?.message || `HTTP ${status}` };
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || String(err);
+    console.error('[Evolution] findChats:', msg);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Busca mensagens de um chat (Evolution API).
+ * @param {string} remoteJid ex: 5598...@s.whatsapp.net
+ */
+async function findMessages(instance, remoteJid, limit = 80) {
+  const { baseUrl, apiKey, instance: defaultInstance } = getEvolutionConfig();
+  const inst = encodeURIComponent(instance || defaultInstance);
+  if (!baseUrl || !apiKey || !inst || !remoteJid) {
+    return { ok: false, error: 'Evolution API não configurada ou remoteJid vazio' };
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/findMessages/${inst}`;
+  const body = {
+    where: { key: { remoteJid } },
+    limit,
+  };
+  try {
+    const { data, status } = await axios.post(url, body, {
+      headers: buildHeaders(apiKey),
+      timeout: 120000,
+    });
+    if (status >= 200 && status < 300) return { ok: true, data };
+    return { ok: false, error: data?.message || `HTTP ${status}` };
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || String(err);
+    console.error('[Evolution] findMessages:', msg);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Obtém base64 de uma mensagem de mídia (quando o payload do findMessages não traz o arquivo).
+ */
+async function getBase64FromMediaMessage(instance, messagePayload) {
+  const { baseUrl, apiKey, instance: defaultInstance } = getEvolutionConfig();
+  const inst = encodeURIComponent(instance || defaultInstance);
+  if (!baseUrl || !apiKey || !inst) {
+    return { ok: false, error: 'Evolution API não configurada' };
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${inst}`;
+  try {
+    const { data, status } = await axios.post(
+      url,
+      { message: messagePayload, convertToMp4: false },
+      { headers: buildHeaders(apiKey), timeout: 120000 }
+    );
+    if (status >= 200 && status < 300) return { ok: true, data };
+    return { ok: false, error: data?.message || `HTTP ${status}` };
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || String(err);
+    console.error('[Evolution] getBase64FromMediaMessage:', msg);
+    return { ok: false, error: msg };
+  }
+}
+
 module.exports = {
   sendText,
   jidToNumber,
   getEvolutionConfig,
+  findChats,
+  findMessages,
+  getBase64FromMediaMessage,
 };

@@ -186,7 +186,25 @@ async function saveWhatsappApplication(app) {
   return data;
 }
 
+/**
+ * Verifica se já existe candidatura na tabela `resumes` para o telefone derivado do chat WhatsApp.
+ * @param {string} chatIdOrDigits remoteJid ou só dígitos
+ * @returns {Promise<boolean>}
+ */
+async function hasResumeRegisteredForPhone(chatIdOrDigits) {
+  const phone = normalizePhoneForDb(chatIdOrDigits);
+  if (!phone) return false;
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from('resumes').select('id').eq('candidate_phone', phone).limit(1);
+  if (error) {
+    console.error('[Applications] hasResumeRegisteredForPhone:', error.message);
+    throw new Error(error.message);
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
 module.exports = {
   saveWhatsappApplication,
   normalizePhoneForDb,
+  hasResumeRegisteredForPhone,
 };
