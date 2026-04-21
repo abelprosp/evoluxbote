@@ -80,3 +80,18 @@ curl -X POST "https://sua-evolution.com/webhook/set/SUA_INSTANCIA" \
 | EVOLUTION_INSTANCE    | Sim (Vercel) | Nome da instância na Evolution     |
 
 Com isso, o WhatsApp fica na Evolution API e o cérebro do bot (IA + candidaturas) roda na Vercel via webhook.
+
+## Cron diário (Evolution → Supabase, sem WhatsApp)
+
+O projeto inclui um cron da Vercel (`vercel.json`) que **uma vez por dia** chama `/api/cron/daily-resume-sync`: verifica as últimas conversas na Evolution, recupera mídia de currículo se faltar cadastro no Supabase e registra — **sem enviar mensagens**.
+
+1. Na Vercel, em **Project → Settings → Environment Variables**, adicione **`CRON_SECRET`** com um valor longo e aleatório (o mesmo será enviado automaticamente no header `Authorization: Bearer ...` quando o cron disparar — [documentação Cron](https://vercel.com/docs/cron-jobs)).
+2. Faça **redeploy** após criar o secret.
+3. O horário em `crons[].schedule` é **UTC**. O padrão `"0 7 * * *"` equivale a **04:00** em `America/Sao_Paulo` (UTC−3); ajuste em `vercel.json` se quiser outro horário.
+4. Se a função estourar tempo de execução (timeout), diminua **`DAILY_RESUME_SYNC_CHAT_LIMIT`** nas env da Vercel ou aumente o plano (**`maxDuration`** está em até 300s em `vercel.json` para contas compatíveis).
+
+Teste manual (substitua URL e token):
+
+```bash
+curl -s "https://SEU-PROJETO.vercel.app/api/cron/daily-resume-sync" -H "Authorization: Bearer SEU_CRON_SECRET"
+```
