@@ -71,6 +71,7 @@ function buildHeaders(apiKey) {
 
 /**
  * Lista conversas da instância (Evolution API).
+ * v2 documentação: POST /chat/findChats/{instance}; v1 costumava responder em GET — tentamos POST primeiro.
  * @returns {Promise<{ ok: boolean, data?: unknown, error?: string }>}
  */
 async function findChats(instance) {
@@ -79,14 +80,34 @@ async function findChats(instance) {
   if (!baseUrl || !apiKey || !inst) {
     return { ok: false, error: 'Evolution API não configurada' };
   }
-  const url = `${baseUrl.replace(/\/$/, '')}/chat/findChats/${inst}`;
+  const root = baseUrl.replace(/\/$/, '');
+  const url = `${root}/chat/findChats/${inst}`;
   try {
-    const { data, status } = await axios.get(url, { headers: buildHeaders(apiKey), timeout: 120000 });
+    let status;
+    let data;
+
+    try {
+      const res = await axios.post(url, {}, { headers: buildHeaders(apiKey), timeout: 120000 });
+      status = res.status;
+      data = res.data;
+    } catch (first) {
+      const code = first.response?.status;
+      if (code === 404 || code === 405 || code === 501) {
+        console.warn('[Evolution] findChats POST falhou (%s); tentando GET (API v1 ou proxy).', code);
+        const res = await axios.get(url, { headers: buildHeaders(apiKey), timeout: 120000 });
+        status = res.status;
+        data = res.data;
+      } else {
+        throw first;
+      }
+    }
+
     if (status >= 200 && status < 300) return { ok: true, data };
     return { ok: false, error: data?.message || `HTTP ${status}` };
   } catch (err) {
     const msg = err.response?.data?.message || err.message || String(err);
-    console.error('[Evolution] findChats:', msg);
+    const status = err.response?.status;
+    console.error('[Evolution] findChats:', msg, status ? `(HTTP ${status})` : '');
     return { ok: false, error: msg };
   }
 }
