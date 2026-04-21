@@ -3,7 +3,8 @@
  * Reutiliza a lógica do bot (IA, candidatura, comandos #assumir/#pausa) e envia respostas via Evolution API.
  */
 const { cfg } = require('./config');
-const { sendText, getEvolutionConfig } = require('./services/evolutionService');
+const { sendText, getEvolutionConfig, getBase64FromMediaMessage } = require('./services/evolutionService');
+const { loadWebhookChatState, saveWebhookChatState, clearWebhookChatState, useSupabasePersistence } = require('./services/webhookSessionStore');
 const { adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { runRecruitmentFunnelTurn, deliverWithDelays } = require('./recruitmentFunnel');
 const { saveWhatsappApplication } = require('./services/applicationsService');
@@ -140,6 +141,8 @@ function parseEvolutionPayload(body) {
       mediaBase64,
       fileName: mediaInfo?.fileName,
       mimetype: mediaInfo?.mimetype,
+      /** Envelope bruto (key + message) — usado se o webhook não enviar base64 (webhookBase64) */
+      evolutionRawMessage: item,
     };
   });
 
@@ -165,6 +168,58 @@ function markProcessed(messageId) {
       if (t < cutoff) globalState.processedMessageIds.delete(k);
     }
   }
+}
+
+function stripDataUrlBase64(b64) {
+  if (typeof b64 !== 'string') return '';
+  const i = b64.indexOf('base64,');
+  return i >= 0 ? b64.slice(i + 7).trim() : b64.trim();
+}
+
+/**
+ * Webhook às vezes não traz documentMessage.base64 (evolution sem webhookBase64).
+ * Recupera via Evolution API usando o envelope da mensagem.
+ */
+async function resolveWebhookMediaBase64(instance, existingBase64, evolutionRawMessage) {
+  const direct = stripDataUrlBase64(existingBase64 || '');
+  if (direct) return direct;
+  if (!evolutionRawMessage || typeof evolutionRawMessage !== 'object') return null;
+  const res = await getBase64FromMediaMessage(instance, evolutionRawMessage);
+  if (!res.ok || !res.data) {
+    console.warn('[Webhook] getBase64FromMediaMessage:', res.error || 'sem dados');
+    return null;
+  }
+  const d = res.data;
+  const raw = d.base64 ?? d?.data ?? (typeof d === 'string' ? d : '');
+  const b64 = stripDataUrlBase64(typeof raw === 'string' ? raw : '');
+  return b64 || null;
+}
+
+async function hydrateWebhookStateFromDb(chatId) {
+  if (!useSupabasePersistence()) return;
+  try {
+    const loaded = await loadWebhookChatState(chatId);
+    if (loaded.applicationSession) {
+      globalState.applicationSessions.set(chatId, loaded.applicationSession);
+    } else {
+      globalState.applicationSessions.delete(chatId);
+    }
+    if (loaded.funnelAwaitingClassification) globalState.funnelAwaitingClassification.add(chatId);
+    else globalState.funnelAwaitingClassification.delete(chatId);
+  } catch (e) {
+    console.warn('[Webhook] hydrate estado:', e?.message || e);
+  }
+}
+
+async function persistWebhookStateToDb(chatId) {
+  if (!useSupabasePersistence()) return;
+  try {
+    await saveWebhookChatState(
+      chatId,
+      globalState.applicationSessions.get(chatId) || null,
+      globalState.funnelAwaitingClassification.has(chatId)
+    );
+  } catch (_) {}
 }
 
 function calcularDelayResposta(textoResposta) {
@@ -201,6 +256,7 @@ async function handleOneMessage(instance, payload) {
     mediaBase64,
     fileName,
     mimetype,
+    evolutionRawMessage,
   } = payload;
 
   const enviarMensagemSegura = async (toChatId, texto, salvarNoHistorico = true) => {
@@ -258,13 +314,25 @@ async function handleOneMessage(instance, payload) {
   await aguardarDelayEntreMensagens(chatId);
 
   try {
+    await hydrateWebhookStateFromDb(chatId);
+
     const hasSession = globalState.applicationSessions.has(chatId);
 
     if (hasSession) {
       const handled = await handleApplicationStepEvolution(
         instance,
         chatId,
-        { rawText, textNorm, contentType, mediaBase64, fileName, mimetype, isImage, isDocument },
+        {
+          rawText,
+          textNorm,
+          contentType,
+          mediaBase64,
+          fileName,
+          mimetype,
+          isImage,
+          isDocument,
+          evolutionRawMessage,
+        },
         enviarMensagemSegura,
         calcularDelayResposta
       );
@@ -296,6 +364,7 @@ async function handleOneMessage(instance, payload) {
     if (funnelResult.handled) {
       if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
       else if (hasMedia) adicionarMensagemAoHistorico(chatId, 'user', '(mídia)');
+      await persistWebhookStateToDb(chatId);
       return;
     }
   } catch (err) {
@@ -305,13 +374,20 @@ async function handleOneMessage(instance, payload) {
     } catch (_) {}
   } finally {
     globalState.processingMessages.delete(chatId);
+    await persistWebhookStateToDb(chatId);
   }
+}
+
+async function endApplicationSession(chatId) {
+  globalState.applicationSessions.delete(chatId);
+  globalState.funnelAwaitingClassification.delete(chatId);
+  await clearWebhookChatState(chatId);
 }
 
 async function handleApplicationStepEvolution(
   instance,
   chatId,
-  { rawText, textNorm, contentType, mediaBase64, fileName, mimetype, isImage, isDocument },
+  { rawText, textNorm, contentType, mediaBase64, fileName, mimetype, isImage, isDocument, evolutionRawMessage },
   enviarMensagemSegura,
   calcularDelayResposta
 ) {
@@ -320,8 +396,17 @@ async function handleApplicationStepEvolution(
   const text = rawText || '';
 
   if (session.step === 'resume') {
-    if ((isDocument || isImage) && mediaBase64) {
-      const buf = Buffer.from(mediaBase64, 'base64');
+    if (isDocument || isImage) {
+      const effectiveBase64 = await resolveWebhookMediaBase64(instance, mediaBase64, evolutionRawMessage);
+      if (!effectiveBase64) {
+        await enviarMensagemSegura(
+          chatId,
+          'Recebi o arquivo, mas não consegui ler o conteúdo (mídia sem base64). Na Evolution API, ative **webhookBase64: true** no webhook ou envie o PDF novamente.'
+        );
+        return true;
+      }
+
+      const buf = Buffer.from(effectiveBase64, 'base64');
       let fname = fileName || 'curriculo.pdf';
       let mime = mimetype || 'application/pdf';
       if (isImage) {
@@ -329,7 +414,7 @@ async function handleApplicationStepEvolution(
         const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
         if (!/\.(jpg|jpeg|png|webp)$/i.test(fname)) fname = `curriculo.${ext}`;
       }
-      session.resume = { buffer: buf, filename: fname, mimetype: mime, base64: mediaBase64 };
+      session.resume = { buffer: buf, filename: fname, mimetype: mime, base64: effectiveBase64 };
 
       await enviarMensagemSegura(chatId, '📄 Recebi seu currículo! Estou analisando com IA, aguarde um momento...');
 
@@ -400,8 +485,7 @@ async function handleApplicationStepEvolution(
           '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(chatId, resposta);
-        globalState.applicationSessions.delete(chatId);
-        globalState.funnelAwaitingClassification.delete(chatId);
+        await endApplicationSession(chatId);
         return true;
       } catch (error) {
         console.error('[Webhook] Erro ao salvar candidatura:', error);
@@ -516,8 +600,7 @@ async function handleApplicationStepEvolution(
           '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(chatId, resposta);
-        globalState.applicationSessions.delete(chatId);
-        globalState.funnelAwaitingClassification.delete(chatId);
+        await endApplicationSession(chatId);
         return true;
       } catch (error) {
         console.error('[Webhook] Erro ao salvar candidatura:', error);

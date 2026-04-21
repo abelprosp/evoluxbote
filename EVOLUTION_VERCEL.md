@@ -41,7 +41,11 @@ Assim o bot funciona 100% via Evolution API, sem Baileys e sem Vercel.
    **Eventos:** ative pelo menos:
    - `MESSAGES_UPSERT` (mensagens recebidas)
 
-   **Recomendado:** ative `webhookBase64: true` para que imagens e documentos (ex.: currículos) venham em base64 e o bot possa processar.
+   **Recomendado:** ative `webhookBase64: true` para que imagens e documentos (ex.: currículos) venham em base64 e o bot possa processar. Sem isso o bot tenta recuperar pela API Evolution, mas pode falhar no PDF.
+
+### Sessão no Vercel (PDF depois do “envie seu currículo”)
+
+Na Vercel cada requisição pode ser um **isolamento novo** sem memória. Por isso o projeto grava no **Supabase** o estado da candidatura (`whatsapp_bot_state`). Execute uma vez no **SQL Editor** do Supabase o arquivo `supabase/whatsapp_bot_state.sql`. Com `SUPABASE_*` configurado na Vercel, a persistência é usada automaticamente (`WEBHOOK_SESSION_PERSISTENCE=memory` desliga).
 
 3. Exemplo de configuração via API da Evolution (ajuste a URL e a instância):
 

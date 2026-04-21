@@ -12,6 +12,8 @@ function getConfig() {
     // Supabase
     SUPABASE_URL: process.env.SUPABASE_URL || '',
     SUPABASE_KEY: process.env.SUPABASE_KEY || '',
+    /** `supabase` (padrão se SUPABASE_* existir), `memory` — sessão candidatura/funil no webhook */
+    WEBHOOK_SESSION_PERSISTENCE: process.env.WEBHOOK_SESSION_PERSISTENCE || '',
     
     // Empresa
     COMPANY_NAME: process.env.COMPANY_NAME || 'EvoluxRH',
