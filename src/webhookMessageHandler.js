@@ -7,7 +7,7 @@ const { sendText, getEvolutionConfig, getBase64FromMediaMessage } = require('./s
 const { loadWebhookChatState, saveWebhookChatState, clearWebhookChatState, useSupabasePersistence } = require('./services/webhookSessionStore');
 const { adicionarMensagemAoHistorico } = require('./chatServiceDiamond');
 const { runRecruitmentFunnelTurn, deliverWithDelays } = require('./recruitmentFunnel');
-const { saveWhatsappApplication } = require('./services/applicationsService');
+const { saveWhatsappApplication, hasResumeRegisteredForPhone } = require('./services/applicationsService');
 const { extrairDadosCurriculo } = require('./services/resumeAnalysisService');
 
 // Estado em memória (persiste em warm invocations no serverless)
@@ -382,6 +382,24 @@ async function handleOneMessage(instance, payload) {
     }
 
     if (!hasSession && hasBody && isConfirmationText(textNorm)) {
+      const isPositiveConfirmation = textNorm === 'sim' || textNorm === 's';
+      if (isPositiveConfirmation) {
+        try {
+          const alreadyRegistered = await hasResumeRegisteredForPhone(chatId);
+          if (alreadyRegistered) {
+            const okMsg =
+              '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados já foram salvos no banco e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
+            await new Promise((r) => setTimeout(r, calcularDelayResposta(okMsg)));
+            await enviarMensagemSegura(chatId, okMsg);
+            await endApplicationSession(chatId);
+            if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
+            return;
+          }
+        } catch (e) {
+          console.warn('[Webhook] Falha ao verificar candidatura existente por telefone:', e?.message || e);
+        }
+      }
+
       const resposta =
         'Não consegui recuperar sua sessão de candidatura para confirmar os dados.\n\nPor favor, envie novamente o seu *currículo* (PDF ou foto da primeira página) para eu analisar e finalizar seu cadastro no banco.';
       await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
