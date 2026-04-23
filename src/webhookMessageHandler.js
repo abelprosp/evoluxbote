@@ -316,7 +316,7 @@ async function handleOneMessage(instance, payload) {
   try {
     await hydrateWebhookStateFromDb(chatId);
 
-    const hasSession = globalState.applicationSessions.has(chatId);
+    let hasSession = globalState.applicationSessions.has(chatId);
 
     if (hasSession) {
       const handled = await handleApplicationStepEvolution(
@@ -337,6 +337,42 @@ async function handleOneMessage(instance, payload) {
         calcularDelayResposta
       );
       if (handled) return;
+    }
+
+    // Fallback resiliente para ambiente stateless (ex.: serverless sem sessão persistida):
+    // se chegar currículo (imagem/PDF) sem sessão ativa, inicia a candidatura automaticamente
+    // e processa o arquivo, evitando cair novamente na pergunta CANDIDATO/EMPRESA.
+    if (!hasSession && hasMedia) {
+      console.warn('[Webhook] Sessão de candidatura ausente ao receber mídia; iniciando fluxo automaticamente.');
+      globalState.applicationSessions.set(chatId, { step: 'resume', data: {}, resume: null });
+      hasSession = true;
+      const handled = await handleApplicationStepEvolution(
+        instance,
+        chatId,
+        {
+          rawText,
+          textNorm,
+          contentType,
+          mediaBase64,
+          fileName,
+          mimetype,
+          isImage,
+          isDocument,
+          evolutionRawMessage,
+        },
+        enviarMensagemSegura,
+        calcularDelayResposta
+      );
+      if (handled) {
+        if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
+        else adicionarMensagemAoHistorico(chatId, 'user', '(mídia)');
+        await persistWebhookStateToDb(chatId);
+        return;
+      }
+      if (!globalState.applicationSessions.get(chatId)?.resume) {
+        globalState.applicationSessions.delete(chatId);
+        hasSession = false;
+      }
     }
 
     const awaiting = globalState.funnelAwaitingClassification.has(chatId);
