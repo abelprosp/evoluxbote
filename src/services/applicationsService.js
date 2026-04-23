@@ -3,16 +3,26 @@ const { PDFDocument } = require('pdf-lib');
 
 /**
  * Normaliza número de telefone para apenas dígitos (remove @s.whatsapp.net, @lid, @g.us, etc.).
- * Se o número tiver mais de 13 dígitos e começar com 55 (Brasil), mantém só 55 + DDD + 9 dígitos
- * (padrão celular BR), para evitar gravar sufixos vindos do WhatsApp (ex.: @lid).
+ * Inclui código 55 (Brasil) quando o valor tem 10–11 dígitos sem país (ex.: DDD+celular vindo de IA no currículo),
+ * alinhando com o JID do WhatsApp.
+ * Se o número tiver mais de 13 dígitos e começar com 55, mantém só 55 + DDD + 9 dígitos (corta sufixo @lid).
  */
 function normalizePhoneForDb(whatsappNumberOrChatId) {
   if (!whatsappNumberOrChatId || typeof whatsappNumberOrChatId !== 'string') return null;
-  const digits = whatsappNumberOrChatId.replace(/\D/g, '');
+  let digits = whatsappNumberOrChatId.replace(/\D/g, '');
   if (digits.length === 0) return null;
-  // Brasil: 55 + 2 (DDD) + 8 ou 9 = 12 ou 13 dígitos. Se veio maior (ex.: chatId com @lid), corta para 13.
-  if (digits.startsWith('55') && digits.length > 13) return digits.slice(0, 13);
+  if (digits.startsWith('55') && digits.length > 13) digits = digits.slice(0, 13);
+  if (!digits.startsWith('55') && digits.length >= 10 && digits.length <= 11) digits = `55${digits}`;
   return digits;
+}
+
+/** Valores a testar no WHERE para achar registro com candidate_phone com ou sem 55 (dados legados / IA). */
+function phoneQueryVariants(whatsappNumberOrChatId) {
+  const main = normalizePhoneForDb(whatsappNumberOrChatId);
+  if (!main) return [];
+  const set = new Set([main]);
+  if (main.startsWith('55') && main.length > 2) set.add(main.slice(2));
+  return Array.from(set);
 }
 
 /** Magic bytes: PNG, JPEG, WebP, GIF */
@@ -192,10 +202,10 @@ async function saveWhatsappApplication(app) {
  * @returns {Promise<boolean>}
  */
 async function hasResumeRegisteredForPhone(chatIdOrDigits) {
-  const phone = normalizePhoneForDb(chatIdOrDigits);
-  if (!phone) return false;
+  const phones = phoneQueryVariants(chatIdOrDigits);
+  if (phones.length === 0) return false;
   const supabase = getSupabase();
-  const { data, error } = await supabase.from('resumes').select('id').eq('candidate_phone', phone).limit(1);
+  const { data, error } = await supabase.from('resumes').select('id').in('candidate_phone', phones).limit(1);
   if (error) {
     console.error('[Applications] hasResumeRegisteredForPhone:', error.message);
     throw new Error(error.message);

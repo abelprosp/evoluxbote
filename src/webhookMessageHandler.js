@@ -548,6 +548,7 @@ async function handleApplicationStepEvolution(
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
         await enviarMensagemSegura(chatId, resposta);
         session.step = 'confirm_extracted';
+        await persistWebhookStateToDb(chatId);
         return true;
       }
 
