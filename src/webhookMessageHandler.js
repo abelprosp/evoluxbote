@@ -176,6 +176,12 @@ function stripDataUrlBase64(b64) {
   return i >= 0 ? b64.slice(i + 7).trim() : b64.trim();
 }
 
+function isConfirmationText(textNorm) {
+  const t = (textNorm || '').trim();
+  if (!t) return false;
+  return t === 'sim' || t === 's' || t === 'nao' || t === 'não' || t === 'n';
+}
+
 /**
  * Webhook às vezes não traz documentMessage.base64 (evolution sem webhookBase64).
  * Recupera via Evolution API usando o envelope da mensagem.
@@ -373,6 +379,17 @@ async function handleOneMessage(instance, payload) {
         globalState.applicationSessions.delete(chatId);
         hasSession = false;
       }
+    }
+
+    if (!hasSession && hasBody && isConfirmationText(textNorm)) {
+      const resposta =
+        'Não consegui recuperar sua sessão de candidatura para confirmar os dados.\n\nPor favor, envie novamente o seu *currículo* (PDF ou foto da primeira página) para eu analisar e finalizar seu cadastro no banco.';
+      await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
+      await enviarMensagemSegura(chatId, resposta);
+      globalState.applicationSessions.set(chatId, { step: 'resume', data: {}, resume: null });
+      await persistWebhookStateToDb(chatId);
+      if (hasBody) adicionarMensagemAoHistorico(chatId, 'user', rawText);
+      return;
     }
 
     const awaiting = globalState.funnelAwaitingClassification.has(chatId);
