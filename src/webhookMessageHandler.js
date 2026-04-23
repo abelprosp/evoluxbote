@@ -437,6 +437,29 @@ async function endApplicationSession(chatId) {
   await clearWebhookChatState(chatId);
 }
 
+function buildApplicationPayload(chatId, session) {
+  const defaultExt = (session.resume?.mimetype || '').startsWith('image/')
+    ? session.resume.mimetype === 'image/png'
+      ? 'png'
+      : session.resume.mimetype === 'image/webp'
+        ? 'webp'
+        : 'jpg'
+    : 'pdf';
+  const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
+
+  return {
+    chatId,
+    fullName: session.data.fullName || 'Não informado',
+    email: session.data.email || null,
+    whatsappNumber: session.data.phone || chatId,
+    city: session.data.city || null,
+    jobInterest: session.data.jobInterest || 'Não especificado',
+    resumeBase64: session.resume?.base64 || '',
+    resumeFilename: session.resume?.filename || defaultName,
+    resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
+  };
+}
+
 async function handleApplicationStepEvolution(
   instance,
   chatId,
@@ -484,6 +507,14 @@ async function handleApplicationStepEvolution(
         session.data.phone = extracted.phone || session.data.phone || '';
         session.data.city = extracted.city || session.data.city || '';
         session.data.jobInterest = extracted.jobInterest || session.data.jobInterest || '';
+        try {
+          if (!session.savedToDb) {
+            await saveWhatsappApplication(buildApplicationPayload(chatId, session));
+            session.savedToDb = true;
+          }
+        } catch (error) {
+          console.error('[Webhook] Erro ao salvar candidatura no recebimento do currículo:', error);
+        }
         const linhas = [
           '📄 *Currículo recebido!* Analisei com IA e extraí estes dados:',
           '',
@@ -515,25 +546,10 @@ async function handleApplicationStepEvolution(
   if (session.step === 'confirm_extracted') {
     if (textNorm.includes('sim') || textNorm.includes('s ') || textNorm === 's') {
       try {
-        const defaultExt = (session.resume?.mimetype || '').startsWith('image/')
-          ? session.resume.mimetype === 'image/png'
-            ? 'png'
-            : session.resume.mimetype === 'image/webp'
-              ? 'webp'
-              : 'jpg'
-          : 'pdf';
-        const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
-        await saveWhatsappApplication({
-          chatId,
-          fullName: session.data.fullName || 'Não informado',
-          email: session.data.email || null,
-          whatsappNumber: session.data.phone || chatId,
-          city: session.data.city || null,
-          jobInterest: session.data.jobInterest || 'Não especificado',
-          resumeBase64: session.resume?.base64 || '',
-          resumeFilename: session.resume?.filename || defaultName,
-          resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
-        });
+        if (!session.savedToDb) {
+          await saveWhatsappApplication(buildApplicationPayload(chatId, session));
+          session.savedToDb = true;
+        }
         const resposta =
           '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
@@ -630,25 +646,10 @@ async function handleApplicationStepEvolution(
   if (session.step === 'confirm') {
     if (textNorm.includes('sim') || textNorm.includes('s ') || textNorm === 's') {
       try {
-        const defaultExt = (session.resume?.mimetype || '').startsWith('image/')
-          ? session.resume.mimetype === 'image/png'
-            ? 'png'
-            : session.resume.mimetype === 'image/webp'
-              ? 'webp'
-              : 'jpg'
-          : 'pdf';
-        const defaultName = (session.resume?.mimetype || '').startsWith('image/') ? `curriculo.${defaultExt}` : 'curriculo.pdf';
-        await saveWhatsappApplication({
-          chatId,
-          fullName: session.data.fullName,
-          email: session.data.email,
-          whatsappNumber: session.data.phone || chatId,
-          city: session.data.city,
-          jobInterest: session.data.jobInterest,
-          resumeBase64: session.resume?.base64 || '',
-          resumeFilename: session.resume?.filename || defaultName,
-          resumeMimetype: session.resume?.mimetype || (defaultExt === 'pdf' ? 'application/pdf' : `image/${defaultExt}`),
-        });
+        if (!session.savedToDb) {
+          await saveWhatsappApplication(buildApplicationPayload(chatId, session));
+          session.savedToDb = true;
+        }
         const resposta =
           '🎉 *Candidatura registrada com sucesso!*\n\nSeus dados foram salvos e nossa equipe entrará em contato em breve.\n\nObrigada por se candidatar na EvoluxRH! 😊';
         await new Promise((r) => setTimeout(r, calcularDelayResposta(resposta)));
